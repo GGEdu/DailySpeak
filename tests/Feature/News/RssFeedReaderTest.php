@@ -37,11 +37,38 @@ class RssFeedReaderTest extends TestCase
         $this->assertTrue($items->last()->publishedAt->equalTo(now()));
     }
 
+    public function test_it_parses_atom_entries(): void
+    {
+        $items = app(RssFeedReader::class)->parse(file_get_contents(base_path('tests/Fixtures/news/atom.xml')));
+
+        $this->assertContainsOnlyInstancesOf(FeedItem::class, $items);
+        // The enclosure link is skipped, the alternate link is used, and the untitled entry is dropped.
+        $this->assertSame([
+            'https://theconversation.com/global/articles/coastal-cities-plan-sea-level-rise-100001',
+            'https://theconversation.com/global/articles/sleep-research-changing-its-mind-100002',
+            'https://theconversation.com/global/podcasts/language-climate-negotiations-100003',
+        ], $items->pluck('url')->all());
+        $this->assertSame('Coastal cities must plan for sea level rise sooner', $items->first()->title);
+
+        // "published" wins over "updated" when both are present.
+        $this->assertSame('2026-10-07 08:30:00', $items->first()->publishedAt->toDateTimeString());
+        // Entries that only have "updated" are read, and offsets are converted to the application timezone.
+        $this->assertSame('2026-10-06 14:45:00', $items->get(1)->publishedAt->toDateTimeString());
+        $this->assertSame('UTC', $items->get(1)->publishedAt->tzName);
+    }
+
     public function test_it_rejects_documents_that_are_not_rss(): void
     {
         $this->expectException(UnexpectedValueException::class);
 
         app(RssFeedReader::class)->parse('<html><body>Not a feed</body></html>');
+    }
+
+    public function test_it_rejects_feed_elements_outside_the_atom_namespace(): void
+    {
+        $this->expectException(UnexpectedValueException::class);
+
+        app(RssFeedReader::class)->parse('<feed><entry><title>No namespace</title><link href="https://example.test/a"/></entry></feed>');
     }
 
     public function test_it_downloads_the_feed(): void
