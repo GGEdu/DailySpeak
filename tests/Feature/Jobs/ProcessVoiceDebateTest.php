@@ -18,6 +18,8 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Exceptions;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Laravel\Ai\Audio;
 use Laravel\Ai\Messages\AssistantMessage;
@@ -26,6 +28,7 @@ use Laravel\Ai\Prompts\AgentPrompt;
 use Laravel\Ai\Prompts\AudioPrompt;
 use Laravel\Ai\Prompts\TranscriptionPrompt;
 use Laravel\Ai\Transcription;
+use Mockery;
 use RuntimeException;
 use Tests\TestCase;
 
@@ -139,6 +142,67 @@ class ProcessVoiceDebateTest extends TestCase
                 && $history[1] instanceof AssistantMessage && $history[1]->content === $earlier[1]->transcript;
         });
         $this->assertSame(4, $this->debate->messages()->count());
+    }
+
+    public function test_only_the_most_recent_messages_are_sent_as_history(): void
+    {
+        config(['debate.llm.history_messages' => 2]);
+        foreach (['First claim.', 'First reply.', 'Second claim.', 'Second reply.'] as $i => $transcript) {
+            DebateMessage::factory()->for($this->debate)->state(['role' => $i % 2 ? MessageRole::Assistant : MessageRole::User])
+                ->create(['transcript' => $transcript]);
+        }
+        Transcription::fake([self::USER_SAYS]);
+        DebateTutor::fake([self::TUTOR_SAYS]);
+        Audio::fake([base64_encode('mp3')]);
+
+        ProcessVoiceDebate::dispatch($this->debate, self::RECORDING);
+
+        DebateTutor::assertPrompted(fn (AgentPrompt $prompt) => collect($prompt->agent->messages())
+            ->map(fn ($message) => $message->content)
+            ->all() === ['Second claim.', 'Second reply.']);
+    }
+
+    public function test_the_configured_options_are_sent_to_the_tutors_provider(): void
+    {
+        // A faster, low-effort answer from an OpenAI-compatible reasoning model.
+        config([
+            'ai.providers.nvidia' => ['driver' => 'openai-compatible', 'url' => 'https://llm.test/v1', 'key' => 'test-key'],
+            'debate.llm.provider' => 'nvidia',
+            'debate.llm.model' => 'openai/gpt-oss-20b',
+            'debate.llm.options' => ['reasoning_effort' => 'low'],
+        ]);
+        Http::preventStrayRequests()->fake(['llm.test/v1/chat/completions' => Http::response([
+            'id' => 'chatcmpl-1',
+            'model' => 'openai/gpt-oss-20b',
+            'choices' => [['index' => 0, 'message' => ['role' => 'assistant', 'content' => self::TUTOR_SAYS], 'finish_reason' => 'stop']],
+            'usage' => ['prompt_tokens' => 10, 'completion_tokens' => 5, 'total_tokens' => 15],
+        ])]);
+        Transcription::fake([self::USER_SAYS]);
+        Audio::fake([base64_encode('mp3')]);
+
+        ProcessVoiceDebate::dispatch($this->debate, self::RECORDING);
+
+        Http::assertSent(fn ($request) => $request['model'] === 'openai/gpt-oss-20b' && $request['reasoning_effort'] === 'low');
+        $this->assertSame(self::TUTOR_SAYS, $this->debate->messages()->latest('id')->value('transcript'));
+    }
+
+    public function test_each_answered_turn_logs_where_the_time_went(): void
+    {
+        Log::spy();
+        Transcription::fake([self::USER_SAYS]);
+        DebateTutor::fake([self::TUTOR_SAYS]);
+        Audio::fake([base64_encode('mp3')]);
+
+        ProcessVoiceDebate::dispatch($this->debate, self::RECORDING);
+
+        $reply = $this->debate->messages()->where('role', MessageRole::Assistant)->sole();
+        $timings = Mockery::on(fn (array $context) => $context['debate_id'] === $this->debate->id
+            && $context['message_id'] === $reply->id
+            && $context['llm'] === 'gemini/default'
+            && collect(['queue_ms', 'stt_ms', 'llm_ms', 'tts_ms', 'total_ms'])->every(fn (string $key) => is_int($context[$key]) && $context[$key] >= 0)
+            && $context['total_ms'] >= $context['stt_ms'] + $context['llm_ms'] + $context['tts_ms']);
+
+        Log::shouldHaveReceived('info')->once()->with('Voice turn answered.', $timings);
     }
 
     public function test_it_uses_the_configured_models_and_voice(): void

@@ -7,6 +7,8 @@ use App\Models\Debate;
 use App\Models\DebateMessage;
 use Laravel\Ai\Contracts\Agent;
 use Laravel\Ai\Contracts\Conversational;
+use Laravel\Ai\Contracts\HasProviderOptions;
+use Laravel\Ai\Enums\Lab;
 use Laravel\Ai\Messages\AssistantMessage;
 use Laravel\Ai\Messages\Message;
 use Laravel\Ai\Messages\UserMessage;
@@ -16,7 +18,7 @@ use Stringable;
 /**
  * Native-speaker debate partner that argues about a news article with the user.
  */
-class DebateTutor implements Agent, Conversational
+class DebateTutor implements Agent, Conversational, HasProviderOptions
 {
     use Promptable;
 
@@ -49,12 +51,25 @@ class DebateTutor implements Agent, Conversational
     {
         return $this->debate->messages()
             ->where('id', '<', $this->turn->getKey())
-            ->orderBy('id')
+            ->latest('id')
+            ->limit(config('debate.llm.history_messages'))
             ->get()
+            ->reverse()
             ->map(fn (DebateMessage $message) => $message->role === MessageRole::User
                 ? new UserMessage($message->transcript)
                 : new AssistantMessage($message->transcript))
+            ->values()
             ->all();
+    }
+
+    /**
+     * Get the provider-specific options to be passed to the provider.
+     *
+     * @return array<string, mixed>
+     */
+    public function providerOptions(Lab|string $provider): array
+    {
+        return (array) config('debate.llm.options');
     }
 
     /**

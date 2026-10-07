@@ -69,7 +69,9 @@ return [
             'connection' => env('REDIS_QUEUE_CONNECTION', 'default'),
             'queue' => env('REDIS_QUEUE', 'default'),
             'retry_after' => (int) env('REDIS_QUEUE_RETRY_AFTER', 90),
-            'block_for' => null,
+            // Idle workers wait on Redis for a new job instead of polling every few seconds,
+            // so a voice turn is picked up as soon as it is sent (workers use "sleep" => 0).
+            'block_for' => 1,
             'after_commit' => false,
         ],
 

@@ -80,7 +80,7 @@ Flujo de un turno:
 1. `POST /api/news-articles/{id}/debates` inicia un debate (o reanuda el activo) y devuelve el canal privado (`debates.{id}`).
 2. El cliente se suscribe con Laravel Echo a ese canal (autorización en `/broadcasting/auth`, solo el dueño del debate).
 3. `POST /api/debates/{id}/audio` (multipart, campo `audio`: webm, ogg, m4a, mp4, mp3, wav o flac; máx. 10 MB) guarda la grabación, encola `ProcessVoiceDebate` y responde `202`.
-4. El job transcribe el audio (STT), pide la réplica al agente `DebateTutor` con el historial del debate (LLM), la sintetiza a MP3 (TTS) y guarda ambos mensajes en `debate_messages`.
+4. El job transcribe el audio (STT) y emite `UserTurnTranscribed` con la transcripción, para que el usuario la vea mientras el tutor piensa. Después pide la réplica al agente `DebateTutor` con los últimos 30 mensajes del debate (LLM), la sintetiza a MP3 (TTS) y guarda ambos mensajes en `debate_messages`.
 5. Se emite `AIResponseGenerated` (`ShouldBroadcastNow`) con `transcript`, `audio_url` (URL firmada válida 60 min) y `user_message`. Si no se oye nada o el turno falla tras reintentar, se emite `DebateTurnFailed` con `reason` = `no_speech` | `processing_failed`.
 
 Las rutas de la API usan Sanctum (`auth:sanctum`): cookie de sesión para la web o token Bearer para otros clientes. Los turnos se procesan de uno en uno por debate y la subida está limitada a 20 por minuto.
@@ -89,11 +89,32 @@ Las rutas de la API usan Sanctum (`auth:sanctum`): cookie de sesión para la web
 |-------------------------|--------------|-------------|
 | `DEBATE_STT_PROVIDER` / `DEBATE_STT_MODEL` | `openai` / `whisper-1` | Transcripción (p. ej. `groq` / `whisper-large-v3-turbo`) |
 | `DEBATE_LLM_PROVIDER` / `DEBATE_LLM_MODEL` | `gemini` / por defecto del proveedor | Tutor de debate |
+| `DEBATE_LLM_OPTIONS`    | —            | JSON que se añade a cada petición del tutor, p. ej. `'{"reasoning_effort":"low"}'` (ver Latencia) |
 | `DEBATE_TTS_PROVIDER` / `DEBATE_TTS_MODEL` | `openai` / por defecto del proveedor | Síntesis de voz (p. ej. `eleven`) |
 | `DEBATE_TTS_VOICE`      | `alloy`      | Voz de OpenAI o id de voz de ElevenLabs |
 | `ELEVENLABS_API_KEY` / `GROQ_API_KEY` | — | Solo si se usan esos proveedores |
 
 El system prompt del tutor está en `config/prompts.php` (`debate_tutor`).
+
+### Latencia
+
+Cada turno respondido deja en el log una línea `Voice turn answered.` con el desglose en milisegundos: `queue_ms` (espera en la cola), `stt_ms`, `llm_ms`, `tts_ms` y `total_ms` (desde que se subió el audio hasta que la réplica está lista):
+
+```bash
+./vendor/bin/sail exec laravel.test grep "Voice turn answered" storage/logs/laravel.log | tail
+```
+
+Medido en desarrollo con NVIDIA `openai/gpt-oss-20b` (STT/TTS simulados), 3 turnos por configuración:
+
+| Configuración | Cola | LLM | Total |
+|---|---|---|---|
+| Antes: workers que sondean Redis cada 3 s, `reasoning_effort` bajo | 0,9–2 s | 1,6–2,1 s | 2,8–3,7 s |
+| Workers que esperan en Redis (`block_for`), razonamiento por defecto | 8–62 ms | 2,8–7,2 s | 2,8–7,3 s |
+| Workers que esperan en Redis + `reasoning_effort` bajo (`.env` de desarrollo) | 10–60 ms | 1,3–1,6 s | **1,3–1,7 s** |
+
+La transcripción del usuario aparece en pantalla 0,1–0,2 s después de enviar.
+
+`reasoning_effort` vale para APIs compatibles con OpenAI (NVIDIA, Groq…); con OpenAI usa `'{"reasoning":{"effort":"low"}}'`. Con proveedores reales, el STT y el TTS añaden su propio tiempo: para recortarlo, Groq `whisper-large-v3-turbo` en STT y un modelo TTS rápido (p. ej. `eleven_flash_v2_5`). Pendiente para más adelante: respuesta en streaming (texto y audio por frases) para empezar a hablar antes de tener la réplica completa.
 
 ## Frontend (web MVP)
 

@@ -69,6 +69,12 @@ return [
         'provider' => env('DEBATE_LLM_PROVIDER', 'gemini'),
         'model' => env('DEBATE_LLM_MODEL') ?: null,
         'timeout' => 30,
+        // Provider-specific request options (JSON) merged into every tutor request. A lower
+        // reasoning effort answers several times faster: {"reasoning_effort":"low"} for NVIDIA,
+        // Groq and other OpenAI-compatible APIs, {"reasoning":{"effort":"low"}} for OpenAI.
+        'options' => json_decode((string) env('DEBATE_LLM_OPTIONS'), true) ?: [],
+        // Only the most recent messages are sent as history, so long debates stay fast and cheap.
+        'history_messages' => 30,
     ],
 
     'tts' => [

@@ -209,6 +209,8 @@ return [
             'maxJobs' => 0,
             'memory' => 128,
             'tries' => 1,
+            // Idle workers already wait on Redis (see the connection's block_for).
+            'sleep' => 0,
             // Must stay below the redis connection's retry_after (REDIS_QUEUE_RETRY_AFTER).
             'timeout' => 120,
             'nice' => 0,
