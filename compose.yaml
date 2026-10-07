@@ -56,6 +56,21 @@ services:
             - laravel.test
             - redis
             - reverb
+    scheduler:
+        image: 'sail-8.5/app'
+        pull_policy: never
+        command: ['php', 'artisan', 'schedule:work']
+        environment:
+            WWWUSER: '${WWWUSER}'
+            LARAVEL_SAIL: 1
+        volumes:
+            - '.:/var/www/html'
+        networks:
+            - sail
+        depends_on:
+            - laravel.test
+            - pgsql
+            - redis
     pgsql:
         image: 'postgres:18-alpine'
         ports:

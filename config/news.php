@@ -18,6 +18,21 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Daily Schedule
+    |--------------------------------------------------------------------------
+    |
+    | When the scheduler runs news:fetch. The timezone only applies to this
+    | task; the application itself keeps storing dates in UTC.
+    |
+    */
+
+    'schedule' => [
+        'time' => env('NEWS_FETCH_TIME', '03:00'),
+        'timezone' => env('NEWS_FETCH_TIMEZONE', 'Europe/Madrid'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Harvesting Limits
     |--------------------------------------------------------------------------
     |

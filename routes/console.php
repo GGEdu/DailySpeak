@@ -10,6 +10,7 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 Schedule::command(FetchDailyNews::class)
-    ->dailyAt('03:00')
+    ->dailyAt(config('news.schedule.time'))
+    ->timezone(config('news.schedule.timezone'))
     ->withoutOverlapping()
     ->onOneServer();

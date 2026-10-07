@@ -31,5 +31,17 @@
         <env name="PULSE_ENABLED" value="false"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="NIGHTWATCH_ENABLED" value="false"/>
+        <!-- Documented AI defaults, so a developer's local .env never changes test results. -->
+        <env name="NEWS_AI_PROVIDER" value="gemini"/>
+        <env name="NEWS_AI_MODEL" value=""/>
+        <env name="NEWS_FETCH_TIME" value="03:00"/>
+        <env name="NEWS_FETCH_TIMEZONE" value="Europe/Madrid"/>
+        <env name="DEBATE_STT_PROVIDER" value="openai"/>
+        <env name="DEBATE_STT_MODEL" value="whisper-1"/>
+        <env name="DEBATE_LLM_PROVIDER" value="gemini"/>
+        <env name="DEBATE_LLM_MODEL" value=""/>
+        <env name="DEBATE_TTS_PROVIDER" value="openai"/>
+        <env name="DEBATE_TTS_MODEL" value=""/>
+        <env name="DEBATE_TTS_VOICE" value="alloy"/>
     </php>
 </phpunit>

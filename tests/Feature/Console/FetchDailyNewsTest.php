@@ -183,15 +183,20 @@ class FetchDailyNewsTest extends TestCase
         $this->assertSame(0, NewsArticle::count());
     }
 
-    public function test_it_is_scheduled_daily_at_three_am(): void
+    public function test_it_is_scheduled_daily_at_three_am_madrid_time(): void
     {
         $event = collect(app(Schedule::class)->events())
             ->first(fn ($event) => str_contains($event->command, 'news:fetch'));
 
         $this->assertNotNull($event);
         $this->assertSame('0 3 * * *', $event->expression);
+        $this->assertSame('Europe/Madrid', $event->timezone);
         $this->assertTrue($event->withoutOverlapping);
         $this->assertTrue($event->onOneServer);
+
+        // 03:00 in Madrid is 01:00 UTC in summer (CEST) and 02:00 UTC in winter (CET).
+        $this->assertSame('2026-10-08 01:00:00', $event->nextRunDate('2026-10-07 12:00:00')->setTimezone('UTC')->toDateTimeString());
+        $this->assertSame('2026-12-02 02:00:00', $event->nextRunDate('2026-12-01 12:00:00')->setTimezone('UTC')->toDateTimeString());
     }
 
     /**

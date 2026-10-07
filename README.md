@@ -42,13 +42,19 @@ Servicios expuestos por defecto:
 
 ## Ingesta de noticias (News Harvester)
 
-El comando `news:fetch` lee los feeds RSS configurados, descarga el texto de cada artículo nuevo, lo resume con el agente `NewsSummarizer` (Laravel AI SDK) y lo guarda en `news_articles`. Está programado a diario a las 03:00 (zona horaria de la app, UTC por defecto).
+El comando `news:fetch` lee los feeds RSS configurados, descarga el texto de cada artículo nuevo, lo resume con el agente `NewsSummarizer` (Laravel AI SDK) y lo guarda en `news_articles`. Está programado a diario a las 03:00 hora de Madrid (`NEWS_FETCH_TIME` / `NEWS_FETCH_TIMEZONE`); las fechas se siguen guardando en UTC.
+
+En Sail, el servicio `scheduler` ejecuta `php artisan schedule:work` de forma continua. En producción basta una entrada de cron que lance el scheduler cada minuto:
+
+```cron
+* * * * * cd /ruta/a/dailyspeak && php artisan schedule:run >> /dev/null 2>&1
+```
 
 ```bash
 ./vendor/bin/sail artisan news:fetch                 # feeds de NEWS_FEEDS
 ./vendor/bin/sail artisan news:fetch --limit=2       # máx. artículos nuevos por feed
 ./vendor/bin/sail artisan news:fetch --feed=https://feeds.bbci.co.uk/news/technology/rss.xml
-./vendor/bin/sail artisan schedule:work              # ejecuta el scheduler en local
+./vendor/bin/sail artisan schedule:list              # próximas ejecuciones (en UTC)
 ```
 
 Configuración (`.env`):
@@ -65,7 +71,7 @@ El prompt de resumen está en `config/prompts.php`. Los artículos ya guardados 
 
 ## Debate por voz (API + WebSockets)
 
-Sail levanta dos servicios extra con la misma imagen de la app: `reverb` (servidor WebSocket) y `horizon` (workers de la cola `debates`). Tras cambiar código PHP, reinicia los workers con `./vendor/bin/sail restart horizon`.
+Sail levanta tres servicios extra con la misma imagen de la app: `reverb` (servidor WebSocket), `horizon` (workers de la cola `debates`) y `scheduler` (tareas programadas). Tras cambiar código PHP, reinicia los workers con `./vendor/bin/sail restart horizon`.
 
 Flujo de un turno:
 
