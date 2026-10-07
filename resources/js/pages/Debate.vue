@@ -69,6 +69,12 @@ const orbLabel = computed(
 
 // --- Realtime replies (Laravel Echo → Reverb, private channel debates.{id}) ---------------
 
+// The transcript arrives before the reply: replace the "…" bubble while the tutor thinks.
+useEcho(props.debate.channel, 'UserTurnTranscribed', (event) => {
+    removePendingTurn();
+    upsertMessage({ id: event.message_id, role: 'user', transcript: event.transcript });
+});
+
 useEcho(props.debate.channel, 'AIResponseGenerated', (event) => {
     clearTimeout(replyTimeout);
     removePendingTurn();

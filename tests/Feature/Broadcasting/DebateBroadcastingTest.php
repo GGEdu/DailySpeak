@@ -4,6 +4,7 @@ namespace Tests\Feature\Broadcasting;
 
 use App\Events\AIResponseGenerated;
 use App\Events\DebateTurnFailed;
+use App\Events\UserTurnTranscribed;
 use App\Models\Debate;
 use App\Models\DebateMessage;
 use App\Models\User;
@@ -47,6 +48,17 @@ class DebateBroadcastingTest extends TestCase
         $this->assertStringContainsString('signature=', $payload['audio_url']);
         $this->assertSame('mp3-bytes', $this->get($payload['audio_url'])->assertOk()->streamedContent());
         $this->get(strtok($payload['audio_url'], '?'))->assertForbidden();
+    }
+
+    public function test_the_users_transcript_is_broadcast_on_the_debate_channel(): void
+    {
+        $turn = DebateMessage::factory()->fromUser()->create(['transcript' => 'Taxes are too high.']);
+
+        $event = new UserTurnTranscribed($turn);
+
+        $this->assertInstanceOf(ShouldBroadcastNow::class, $event);
+        $this->assertEquals([new PrivateChannel("debates.{$turn->debate_id}")], $event->broadcastOn());
+        $this->assertSame(['debate_id' => $turn->debate_id, 'message_id' => $turn->id, 'transcript' => 'Taxes are too high.'], $event->broadcastWith());
     }
 
     public function test_turn_failures_are_broadcast_on_the_debate_channel(): void

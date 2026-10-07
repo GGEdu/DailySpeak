@@ -6,6 +6,7 @@ use App\Ai\Agents\DebateTutor;
 use App\Enums\MessageRole;
 use App\Events\AIResponseGenerated;
 use App\Events\DebateTurnFailed;
+use App\Events\UserTurnTranscribed;
 use App\Models\Debate;
 use App\Models\DebateMessage;
 use DateTimeInterface;
@@ -84,6 +85,9 @@ class ProcessVoiceDebate implements ShouldQueue
 
             return;
         }
+
+        // Show the user what was understood while the tutor is still thinking.
+        rescue(fn () => UserTurnTranscribed::dispatch($turn));
 
         $reply = $this->reply($turn);
 

@@ -7,6 +7,7 @@ use App\Enums\EnglishLevel;
 use App\Enums\MessageRole;
 use App\Events\AIResponseGenerated;
 use App\Events\DebateTurnFailed;
+use App\Events\UserTurnTranscribed;
 use App\Jobs\ProcessVoiceDebate;
 use App\Models\Debate;
 use App\Models\DebateMessage;
@@ -46,7 +47,7 @@ class ProcessVoiceDebateTest extends TestCase
 
         Storage::fake('local');
         Storage::disk('local')->put(self::RECORDING, 'recorded-audio');
-        Event::fake([AIResponseGenerated::class, DebateTurnFailed::class]);
+        Event::fake([UserTurnTranscribed::class, AIResponseGenerated::class, DebateTurnFailed::class]);
 
         $this->debate = Debate::factory()
             ->for(User::factory()->level(EnglishLevel::B2))
@@ -96,9 +97,26 @@ class ProcessVoiceDebateTest extends TestCase
 
         Audio::assertGenerated(fn (AudioPrompt $prompt) => $prompt->text === self::TUTOR_SAYS && $prompt->voice === 'alloy');
 
+        Event::assertDispatched(UserTurnTranscribed::class, fn (UserTurnTranscribed $event) => $event->turn->is($turn));
         Event::assertDispatched(AIResponseGenerated::class, fn (AIResponseGenerated $event) => $event->reply->is($reply)
             && $event->turn->is($turn));
         Event::assertNotDispatched(DebateTurnFailed::class);
+    }
+
+    public function test_the_transcript_is_broadcast_before_the_tutor_answers(): void
+    {
+        Transcription::fake([self::USER_SAYS]);
+        Audio::fake([base64_encode('mp3')]);
+        DebateTutor::fake(function () {
+            // By the time the tutor is asked, the client has already been told what was understood.
+            Event::assertDispatched(UserTurnTranscribed::class);
+
+            return self::TUTOR_SAYS;
+        });
+
+        ProcessVoiceDebate::dispatch($this->debate, self::RECORDING);
+
+        DebateTutor::assertPromptedTimes(1);
     }
 
     public function test_the_tutor_receives_the_previous_turns_as_history(): void
@@ -157,6 +175,7 @@ class ProcessVoiceDebateTest extends TestCase
         $this->assertSame(0, $this->debate->messages()->count());
         DebateTutor::assertNeverPrompted();
         Audio::assertNothingGenerated();
+        Event::assertNotDispatched(UserTurnTranscribed::class);
         Event::assertDispatched(DebateTurnFailed::class, fn (DebateTurnFailed $event) => $event->reason === DebateTurnFailed::NO_SPEECH);
         Event::assertNotDispatched(AIResponseGenerated::class);
     }
