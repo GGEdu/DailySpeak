@@ -38,6 +38,9 @@ return [
 
     'max_article_characters' => 12000,
 
+    // Items whose page has no usable text (videos, live pages) are not downloaded again for this many days.
+    'skipped_items_days' => 7,
+
     /*
     |--------------------------------------------------------------------------
     | Downloads
