@@ -20,7 +20,7 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        $user = User::factory()->level(EnglishLevel::C1)->create([
+        $user = User::factory()->admin()->level(EnglishLevel::C1)->create([
             'name' => 'Test User',
             'email' => 'test@example.com',
         ]);

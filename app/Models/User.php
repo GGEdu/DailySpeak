@@ -28,6 +28,8 @@ class User extends Authenticatable
      */
     protected $attributes = [
         'current_level' => EnglishLevel::B2->value,
+        // Deliberately not fillable: only `php artisan user:admin` grants it.
+        'is_admin' => false,
     ];
 
     /**
@@ -41,6 +43,7 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'current_level' => EnglishLevel::class,
+            'is_admin' => 'boolean',
         ];
     }
 

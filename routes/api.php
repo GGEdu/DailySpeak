@@ -13,8 +13,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/news-articles/{newsArticle}/debates', [DebateController::class, 'store'])
         ->name('debates.store');
 
-    // Every upload costs an STT + LLM + TTS round trip, hence the rate limit.
+    // Every upload costs an STT + LLM + TTS round trip, hence the rate limit (admins are exempt).
     Route::post('/debates/{debate}/audio', [DebateAudioController::class, 'store'])
-        ->middleware('throttle:20,1')
+        ->middleware('throttle:debate-audio')
         ->name('debates.audio.store');
 });
