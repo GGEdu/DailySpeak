@@ -56,11 +56,11 @@ class DebateEvaluator implements Agent, HasStructuredOutput
     }
 
     /**
-     * Get the AI provider the agent should use (the same model as the debate tutor).
+     * Get the AI provider the agent should use (the debate tutor's unless configured).
      */
     public function provider(): string
     {
-        return config('debate.llm.provider');
+        return config('debate.evaluator.provider') ?? config('debate.llm.provider');
     }
 
     /**
@@ -68,7 +68,11 @@ class DebateEvaluator implements Agent, HasStructuredOutput
      */
     public function model(): ?string
     {
-        return config('debate.llm.model');
+        if (config('debate.evaluator.model') !== null) {
+            return config('debate.evaluator.model');
+        }
+
+        return config('debate.evaluator.provider') === null ? config('debate.llm.model') : null;
     }
 
     /**

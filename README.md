@@ -161,6 +161,45 @@ Pendiente de ampliar:
 - [ ] Política de retención de transcripciones, informes de fluidez y audios del tutor.
 - [ ] Registro de actividades de tratamiento y política de privacidad pública.
 
+## Producción: pasarela de IA y proxy inverso
+
+Toda la IA puede ir por una única pasarela compatible con OpenAI (p. ej. [LiteLLM](https://docs.litellm.ai/)) con una sola clave, sin tocar código:
+
+```env
+# Texto (tutor, resúmenes, informe): driver openai-compatible → POST /chat/completions
+OPENAI_COMPATIBLE_URL=https://pasarela.example/v1
+OPENAI_COMPATIBLE_API_KEY=<clave de la pasarela>
+# Voz: el driver openai llama a /audio/transcriptions y /audio/speech de la misma pasarela
+OPENAI_URL=https://pasarela.example/v1
+OPENAI_API_KEY=<la misma clave>
+
+NEWS_AI_PROVIDER=openai-compatible
+NEWS_AI_MODEL=general              # obligatorio: openai-compatible no tiene modelo por defecto
+DEBATE_LLM_PROVIDER=openai-compatible
+DEBATE_LLM_MODEL=chat              # rápido y sin razonamiento: es un turno de voz
+DEBATE_EVAL_MODEL=general          # el informe de fluidez no es en tiempo real: puede razonar
+DEBATE_STT_PROVIDER=openai
+DEBATE_STT_MODEL=stt
+DEBATE_TTS_PROVIDER=openai
+DEBATE_TTS_MODEL=tts
+DEBATE_TTS_VOICE=af_heart          # una voz que acepte el modelo de TTS de la pasarela
+```
+
+No uses el driver `openai` para el texto: llama a la Responses API (`/responses`), no a `/chat/completions`. `chat`, `general`, `stt` y `tts` son nombres de modelo de la pasarela; elige modelos que:
+
+- **Tutor:** respondan en 1–2 s sin razonamiento. Un modelo que razona tarda 4–10 s por turno.
+- **Informe y resúmenes:** admitan `response_format: json_schema`.
+- **STT:** acepten `webm`/`ogg`/`m4a` (lo que graba el navegador) y no «corrijan» al alumno. El informe de fluidez se hace sobre la transcripción: un STT que normaliza la gramática borra justo los errores que hay que señalar.
+
+`DEBATE_EVAL_PROVIDER` / `DEBATE_EVAL_MODEL` dan al informe de fluidez un modelo propio; vacíos, usa el del tutor.
+
+**Detrás de un proxy que termina TLS** (Traefik, nginx…), define `TRUSTED_PROXIES` con su IP o CIDR (varios separados por comas). Sin eso, Laravel genera URLs `http://` (el navegador bloquea los assets por contenido mixto) y todos los usuarios comparten el límite de intentos de login, porque todos llegan con la IP del proxy. Además:
+
+- `APP_URL` debe ser la URL pública `https://…`: con ella se firman las URLs del audio del tutor.
+- `VITE_REVERB_HOST`, `VITE_REVERB_PORT=443` y `VITE_REVERB_SCHEME=https` se compilan en `npm run build`, y el proxy debe enrutar `/app` (WebSocket) a Reverb.
+- El micrófono (`getUserMedia`) solo funciona en HTTPS con un certificado en el que confíe el navegador.
+- `REDIS_QUEUE_RETRY_AFTER` mayor que el timeout del job de voz (120 s), o un turno lento se procesa dos veces.
+
 ## Administradores
 
 ```bash

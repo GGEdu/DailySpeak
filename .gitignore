@@ -25,3 +25,6 @@ _ide_helper.php
 Homestead.json
 Homestead.yaml
 Thumbs.db
+
+# Grafo de conocimiento local (graphify); lo regeneran los hooks post-commit/post-checkout
+graphify-out/

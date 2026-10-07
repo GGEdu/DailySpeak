@@ -77,6 +77,14 @@ return [
         'history_messages' => 30,
     ],
 
+    // Post-session fluency report. It is not real time, so it can use a slower model that
+    // reasons while the tutor uses a fast one. Empty values fall back to the tutor's provider
+    // and model; a provider of its own never inherits the tutor's model.
+    'evaluator' => [
+        'provider' => env('DEBATE_EVAL_PROVIDER') ?: null,
+        'model' => env('DEBATE_EVAL_MODEL') ?: null,
+    ],
+
     'tts' => [
         'provider' => env('DEBATE_TTS_PROVIDER', 'openai'),
         'model' => env('DEBATE_TTS_MODEL') ?: null,
