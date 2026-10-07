@@ -11,7 +11,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-#[Fillable(['user_id', 'word', 'context', 'mastery_level', 'next_review_at'])]
+#[Fillable(['user_id', 'word', 'context', 'translation', 'analysis', 'mastery_level', 'next_review_at'])]
 class UserVocabulary extends Model
 {
     /** @use HasFactory<UserVocabularyFactory> */
@@ -53,6 +53,7 @@ class UserVocabulary extends Model
         return [
             'mastery_level' => 'integer',
             'next_review_at' => 'datetime',
+            'analysis' => 'array',
         ];
     }
 

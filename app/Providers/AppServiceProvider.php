@@ -18,6 +18,11 @@ class AppServiceProvider extends ServiceProvider
     public const AUDIO_UPLOADS_PER_MINUTE = 20;
 
     /**
+     * Word lookups and saves a user may make per minute (a lookup may cost an LLM call).
+     */
+    public const LOOKUPS_PER_MINUTE = 40;
+
+    /**
      * Register any application services.
      */
     public function register(): void
@@ -33,6 +38,8 @@ class AppServiceProvider extends ServiceProvider
         $this->trustProxies();
 
         Gate::define('admin', fn (User $user) => $user->is_admin);
+
+        RateLimiter::for('lookups', fn (Request $request) => Limit::perMinute(self::LOOKUPS_PER_MINUTE)->by($request->user()?->id ?: $request->ip()));
 
         RateLimiter::for('debate-audio', function (Request $request) {
             return $request->user()?->is_admin

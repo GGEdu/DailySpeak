@@ -296,7 +296,7 @@ onBeforeUnmount(() => {
                 <span aria-hidden="true">·</span>
                 <time :datetime="article.published_at">{{ timeAgo(article.published_at) }}</time>
             </p>
-            <h1 class="mt-2 text-2xl font-semibold tracking-tight text-balance text-ink-100">{{ article.title }}</h1>
+            <h1 data-selectable class="mt-2 text-2xl font-semibold tracking-tight text-balance text-ink-100">{{ article.title }}</h1>
 
             <!-- Collapsed on phones so the microphone stays within reach. -->
             <details class="group mt-4" :open="isWideScreen">
@@ -305,7 +305,7 @@ onBeforeUnmount(() => {
                     <span class="hidden group-open:inline">Hide summary</span>
                 </summary>
                 <div class="mt-3 space-y-3 text-[15px] leading-relaxed text-ink-300 lg:mt-0">
-                    <p v-for="(paragraph, index) in paragraphs" :key="index">{{ paragraph }}</p>
+                    <p v-for="(paragraph, index) in paragraphs" :key="index" data-selectable>{{ paragraph }}</p>
                 </div>
             </details>
 

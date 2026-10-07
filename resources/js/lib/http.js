@@ -29,3 +29,28 @@ export async function postForm(url, body) {
 
     return data;
 }
+
+/**
+ * POST JSON to the API with the user's session, throwing the server's message on failure.
+ */
+export async function postJson(url, data, { signal } = {}) {
+    const response = await fetch(url, {
+        method: 'POST',
+        body: JSON.stringify(data),
+        signal,
+        credentials: 'same-origin',
+        headers: {
+            Accept: 'application/json',
+            'Content-Type': 'application/json',
+            'X-XSRF-TOKEN': xsrfToken(),
+        },
+    });
+
+    const body = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+        throw new Error(body.message ?? `Request failed (HTTP ${response.status}).`);
+    }
+
+    return body;
+}
