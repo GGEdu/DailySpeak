@@ -5,7 +5,10 @@ namespace Tests\Feature\Console;
 use App\Models\Debate;
 use App\Models\DebateMessage;
 use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
@@ -68,6 +71,54 @@ class PruneVoiceRecordingsTest extends TestCase
         $disk->assertExists($message->audio_path);
     }
 
+    public function test_a_recording_that_cannot_be_deleted_keeps_its_path_and_fails_the_command(): void
+    {
+        $disk = Storage::fake('local');
+        $debate = Debate::factory()->create();
+        $stuck = $this->userTurn($debate, 'stuck.webm', now()->subDays(8));
+        $orphan = "debates/{$debate->id}/recordings/orphan.webm";
+        $disk->put($orphan, 'user voice');
+        touch($disk->path($orphan), now()->subDays(8)->getTimestamp());
+        Storage::set('local', $this->undeletable($disk));
+        Log::spy();
+
+        $this->assertSame(1, Artisan::call('debates:prune-recordings'));
+
+        $output = Artisan::output();
+        $this->assertStringContainsString('Deleted 0 voice recordings older than 7 days.', $output);
+        $this->assertStringContainsString('2 voice recordings could not be deleted', $output);
+        // The files are still on the disk, so their paths must survive for the next run.
+        $this->assertSame($stuck->audio_path, $stuck->fresh()->audio_path);
+        $disk->assertExists($stuck->audio_path);
+        $disk->assertExists($orphan);
+        Log::shouldHaveReceived('warning')->twice();
+    }
+
+    public function test_a_failed_deletion_is_retried_on_the_next_run(): void
+    {
+        $disk = Storage::fake('local');
+        $message = $this->userTurn(Debate::factory()->create(), 'retry.webm', now()->subDays(8));
+        Storage::set('local', $this->undeletable($disk));
+        $this->artisan('debates:prune-recordings')->assertExitCode(1);
+
+        Storage::set('local', $disk);
+        $this->artisan('debates:prune-recordings')->assertSuccessful();
+
+        $this->assertNull($message->fresh()->audio_path);
+        $disk->assertMissing("debates/{$message->debate_id}/recordings/retry.webm");
+    }
+
+    public function test_a_recording_that_is_already_gone_has_its_path_cleared(): void
+    {
+        $disk = Storage::fake('local');
+        $message = $this->userTurn(Debate::factory()->create(), 'gone.webm', now()->subDays(8));
+        $disk->delete($message->audio_path);
+
+        $this->artisan('debates:prune-recordings')->assertSuccessful();
+
+        $this->assertNull($message->fresh()->audio_path);
+    }
+
     public function test_it_runs_every_day_at_four_am_madrid_time(): void
     {
         $event = collect(app(Schedule::class)->events())
@@ -77,6 +128,21 @@ class PruneVoiceRecordingsTest extends TestCase
         $this->assertSame('0 4 * * *', $event->expression);
         $this->assertSame('Europe/Madrid', $event->timezone);
         $this->assertTrue($event->onOneServer);
+    }
+
+    /**
+     * A disk whose deletes fail the way the local disk does with throw=false: delete() returns
+     * false and the file stays where it is.
+     */
+    private function undeletable(FilesystemAdapter $disk): FilesystemAdapter
+    {
+        return new class($disk->getDriver(), $disk->getAdapter()) extends FilesystemAdapter
+        {
+            public function delete($paths)
+            {
+                return false;
+            }
+        };
     }
 
     private function userTurn(Debate $debate, string $file, $createdAt): DebateMessage
