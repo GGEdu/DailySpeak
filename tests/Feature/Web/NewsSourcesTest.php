@@ -57,11 +57,56 @@ class NewsSourcesTest extends TestCase
 
         $this->actingAs($this->admin)
             ->from('/admin/sources')
-            ->post('/admin/sources', ['name' => 'Example – World', 'feed_url' => 'https://feeds.example.test/rss.xml'])
+            ->post('/admin/sources', ['name' => 'Example – World', 'feed_url' => 'https://feeds.example.test/rss.xml', 'category' => 'world'])
             ->assertRedirect('/admin/sources')
             ->assertSessionHas('status', 'Example – World added. It will be read in the next daily run.');
 
-        $this->assertDatabaseHas('news_sources', ['feed_url' => 'https://feeds.example.test/rss.xml', 'is_active' => true]);
+        $this->assertDatabaseHas('news_sources', [
+            'feed_url' => 'https://feeds.example.test/rss.xml',
+            'category' => 'world',
+            'is_active' => true,
+        ]);
+    }
+
+    public function test_a_new_source_needs_a_category_from_the_list(): void
+    {
+        Http::fake(['feeds.example.test/*' => Http::response(file_get_contents(base_path('tests/Fixtures/news/feed.xml')))]);
+        $data = ['name' => 'Example', 'feed_url' => 'https://feeds.example.test/rss.xml'];
+
+        $this->actingAs($this->admin)->post('/admin/sources', $data)->assertSessionHasErrors('category');
+        $this->actingAs($this->admin)->post('/admin/sources', [...$data, 'category' => 'gardening'])->assertSessionHasErrors('category');
+
+        $this->assertDatabaseMissing('news_sources', ['feed_url' => 'https://feeds.example.test/rss.xml']);
+    }
+
+    public function test_the_sources_page_offers_the_categories_and_each_source_category(): void
+    {
+        $this->actingAs($this->admin)
+            ->get('/admin/sources')
+            ->assertInertia(fn (Assert $page) => $page
+                ->has('categories', 12)
+                ->where('categories.0', ['key' => 'world', 'label' => 'World'])
+                ->where('sources.0.category', 'world'));
+    }
+
+    public function test_admins_can_change_the_category_of_a_source(): void
+    {
+        $source = NewsSource::sole();
+
+        $this->actingAs($this->admin)->patch("/admin/sources/{$source->id}", ['category' => 'culture'])->assertRedirect();
+
+        $this->assertSame('culture', $source->fresh()->category);
+        $this->assertTrue($source->fresh()->is_active);
+    }
+
+    public function test_a_changed_category_must_be_on_the_list(): void
+    {
+        $source = NewsSource::sole();
+
+        $this->actingAs($this->admin)->patch("/admin/sources/{$source->id}", ['category' => 'gardening'])->assertSessionHasErrors('category');
+        $this->actingAs($this->admin)->patch("/admin/sources/{$source->id}", ['category' => ''])->assertSessionHasErrors('category');
+
+        $this->assertSame('world', $source->fresh()->category);
     }
 
     public function test_feeds_that_cannot_be_read_are_rejected(): void

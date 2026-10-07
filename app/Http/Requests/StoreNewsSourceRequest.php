@@ -38,6 +38,7 @@ class StoreNewsSourceRequest extends FormRequest
                 Rule::unique(NewsSource::class, 'feed_url'),
                 $this->readableFeed(...),
             ],
+            'category' => ['required', 'string', Rule::in(array_keys(config('news.categories')))],
         ];
     }
 

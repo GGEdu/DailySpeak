@@ -18,6 +18,9 @@ class NewsArticleResource extends JsonResource
      */
     public function toArray(Request $request): array
     {
+        // The category belongs to the feed the article came from; ad-hoc articles have none.
+        $category = $this->newsSource?->category;
+
         return [
             'id' => $this->id,
             'title' => $this->title,
@@ -25,6 +28,8 @@ class NewsArticleResource extends JsonResource
             'key_vocabulary' => $this->key_vocabulary,
             'source_url' => $this->source_url,
             'source' => preg_replace('/^www\./', '', (string) parse_url($this->source_url, PHP_URL_HOST)),
+            'category' => $category,
+            'category_label' => $category ? config("news.categories.{$category}") : null,
             'published_at' => $this->published_at,
         ];
     }

@@ -9,6 +9,31 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Categories
+    |--------------------------------------------------------------------------
+    |
+    | The closed list of categories a source can be filed under. The key is
+    | stored in news_sources.category; the label is shown in the feed.
+    |
+    */
+
+    'categories' => [
+        'world' => 'World',
+        'business' => 'Business',
+        'technology' => 'Technology',
+        'science' => 'Science',
+        'health' => 'Health',
+        'education' => 'Education',
+        'environment' => 'Environment',
+        'society' => 'Society',
+        'culture' => 'Culture',
+        'sport' => 'Sport',
+        'lifestyle' => 'Lifestyle',
+        'ideas' => 'Ideas',
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Daily Schedule
     |--------------------------------------------------------------------------
     |
