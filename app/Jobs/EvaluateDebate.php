@@ -8,6 +8,7 @@ use App\Events\DebateEvaluated;
 use App\Events\DebateEvaluationFailed;
 use App\Models\Debate;
 use DateTimeInterface;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Queue\Middleware\WithoutOverlapping;
@@ -18,7 +19,7 @@ use Throwable;
  * Post-session fluency analysis (Architecture.md, flow C): feedback on the user's
  * turns, stored in debates.ai_feedback, and recommended words added to their vocabulary.
  */
-class EvaluateDebate implements ShouldQueue
+class EvaluateDebate implements ShouldBeUnique, ShouldQueue
 {
     use Queueable;
 
@@ -45,9 +46,24 @@ class EvaluateDebate implements ShouldQueue
 
     public int $backoff = 5;
 
+    /**
+     * Seconds the unique lock is held. A second request for the same debate inside this window is dropped,
+     * so a double click on "Finish" does not pay for two reports. It matches retryUntil(), so the lock cannot
+     * outlive the job's retries, and it is released as soon as the job succeeds or finally fails.
+     */
+    public int $uniqueFor = 600;
+
     public function __construct(public Debate $debate)
     {
         $this->onQueue(config('debate.queue'));
+    }
+
+    /**
+     * The unique lock is per debate.
+     */
+    public function uniqueId(): string
+    {
+        return (string) $this->debate->getKey();
     }
 
     /**
@@ -71,6 +87,14 @@ class EvaluateDebate implements ShouldQueue
      */
     public function handle(): void
     {
+        // A report is written once. A duplicate that got past the unique lock, or a retry queued after the
+        // report was already saved, must not pay for a second evaluation.
+        $current = $this->debate->fresh();
+
+        if ($current === null || $current->ai_feedback !== null) {
+            return;
+        }
+
         $turns = $this->debate->messages()
             ->where('role', MessageRole::User)
             ->orderBy('id')
