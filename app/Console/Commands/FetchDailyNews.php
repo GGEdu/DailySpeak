@@ -106,7 +106,11 @@ class FetchDailyNews extends Command
     {
         $response = NewsSummarizer::make()->prompt("Title: {$item->title}\n\n{$text}");
 
-        $summary = trim((string) ($response['summary'] ?? ''));
+        // Models often separate paragraphs with a single newline; the UI expects blank lines.
+        $summary = collect(preg_split('/\R+/u', (string) ($response['summary'] ?? '')))
+            ->map(fn (string $paragraph) => trim($paragraph))
+            ->filter()
+            ->implode("\n\n");
 
         $vocabulary = collect($response['vocabulary'] ?? [])
             ->filter(fn ($word) => is_string($word) && trim($word) !== '')

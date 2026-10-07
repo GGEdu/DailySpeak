@@ -157,6 +157,19 @@ class FetchDailyNewsTest extends TestCase
         NewsSummarizer::assertPromptedTimes(1);
     }
 
+    public function test_summary_paragraphs_are_separated_by_blank_lines(): void
+    {
+        $this->fakeHttp();
+        NewsSummarizer::fake(fn () => [
+            'summary' => "  First paragraph.\nSecond paragraph.\r\n\r\n\r\nThird paragraph.  ",
+            'vocabulary' => self::VOCABULARY,
+        ])->preventStrayPrompts();
+
+        $this->artisan('news:fetch', ['--limit' => 1])->assertSuccessful();
+
+        $this->assertSame(self::SUMMARY, NewsArticle::sole()->summary);
+    }
+
     public function test_it_fails_when_a_feed_cannot_be_read(): void
     {
         $this->fakeHttp(['feeds.example.test/*' => Http::response('', 503)]);
