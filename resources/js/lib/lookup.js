@@ -1,16 +1,25 @@
 import { ref } from 'vue';
-import { postJson } from './http';
-import { isVocabulary, normalise, sentenceAt } from './text';
+import { postJson } from './http.js';
+import { isVocabulary, normalise, sentenceAt } from './text.js';
 
 /**
  * The open lookup panel: { text, context, target, focus } or null. `target` is the live Range of
  * the selection (or the element that was tapped), so the panel can follow it when something scrolls.
+ * `focus` tells the panel to take the keyboard focus.
  */
 export const activeLookup = ref(null);
 
 const explanations = new Map();
 
-export function openLookup(text, context, target, { focus = false } = {}) {
+// How the learner last acted. A keyboard user has to reach the panel's buttons with Tab, but a
+// mouse or touch user must not have the focus moved under them.
+let lastInput = 'pointer';
+
+export function noteInput(kind) {
+    lastInput = kind;
+}
+
+export function openLookup(text, context, target, { focus = lastInput === 'keyboard' } = {}) {
     activeLookup.value = { text, context, target, focus };
 }
 

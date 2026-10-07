@@ -19,11 +19,11 @@ const dueWords = computed(() => page.props.dueWords ?? 0);
 
         <header class="sticky top-0 z-30 border-b border-white/5 bg-ink-950/75 backdrop-blur-xl">
             <div class="mx-auto flex h-16 max-w-6xl items-center justify-between px-5 sm:px-8">
-                <Link href="/feed" aria-label="DailySpeak — today's news">
-                    <AppLogo />
+                <Link href="/feed" class="shrink-0" aria-label="DailySpeak — today's news">
+                    <AppLogo compact />
                 </Link>
 
-                <nav class="flex items-center gap-3 text-sm sm:gap-5">
+                <nav class="flex shrink-0 items-center gap-3 text-sm whitespace-nowrap sm:gap-5">
                     <Link href="/feed" class="hidden text-ink-400 transition hover:text-ink-100 sm:inline">Today's news</Link>
                     <Link href="/vocabulary" class="flex items-center gap-1.5 text-ink-400 transition hover:text-ink-100">
                         Words

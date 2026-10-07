@@ -1,5 +1,20 @@
 import { onBeforeUnmount, ref, shallowRef } from 'vue';
-import { audioContext, createAnalyser, preferredRecordingType } from '../lib/audio';
+import { audioContext, createAnalyser, preferredRecordingType, recordingBlocker } from '../lib/audio';
+
+// The message and the error name for each reason recording can fail; the page shows the message.
+const FAILURES = {
+    insecure: ['InsecureContextError', 'Voice needs a secure connection (HTTPS). Open DailySpeak over https:// and try again.'],
+    unsupported: ['NotSupportedError', 'Voice recording is not supported in this browser.'],
+    denied: ['NotAllowedError', 'Microphone access is blocked. Allow it in your browser to start talking.'],
+};
+
+function recordingFailure(reason) {
+    const [name, message] = FAILURES[reason];
+    const error = new Error(message);
+    error.name = name;
+
+    return error;
+}
 
 /**
  * Records one voice turn from the microphone (MediaRecorder) and exposes a
@@ -19,13 +34,23 @@ export function useRecorder({ maxSeconds = 60 } = {}) {
     let onLimit = null;
 
     async function start({ onMaxDuration } = {}) {
-        if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
-            throw new Error('Voice recording is not supported in this browser.');
+        const blocker = recordingBlocker({
+            secureContext: window.isSecureContext,
+            mediaDevices: navigator.mediaDevices,
+            mediaRecorder: window.MediaRecorder,
+        });
+
+        if (blocker) {
+            throw recordingFailure(blocker);
         }
 
-        stream = await navigator.mediaDevices.getUserMedia({
-            audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-        });
+        try {
+            stream = await navigator.mediaDevices.getUserMedia({
+                audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+            });
+        } catch (error) {
+            throw error.name === 'NotAllowedError' ? recordingFailure('denied') : error;
+        }
 
         const mimeType = preferredRecordingType();
         recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
