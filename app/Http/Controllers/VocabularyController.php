@@ -52,6 +52,10 @@ class VocabularyController extends Controller
      */
     public function analyze(UserVocabulary $vocabulary, WordLookup $lookup): RedirectResponse
     {
+        if ($vocabulary->analysis !== null) {
+            return back();
+        }
+
         try {
             AnalyzeVocabulary::store($vocabulary, $lookup);
         } catch (Throwable $e) {

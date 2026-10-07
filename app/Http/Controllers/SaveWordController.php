@@ -17,7 +17,7 @@ class SaveWordController extends Controller
     public function __invoke(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'word' => ['required', 'string', new VocabularySelection],
+            'word' => ['required', 'string', 'max:200', new VocabularySelection],
             'context' => ['nullable', 'string', 'max:2000'],
         ]);
 

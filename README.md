@@ -148,7 +148,7 @@ La vista de debate graba con `MediaRecorder` y usa la Web Audio API (`AnalyserNo
 
 ## Seleccionar, traducir y guardar palabras
 
-En cualquier texto marcado con `data-selectable` (resúmenes y títulos del feed y del debate, mensajes del debate, informe de fluidez y frases de «Your words") basta con **seleccionar una palabra o expresión** (doble clic, arrastrar o mantener pulsado en el móvil): aparece un panel que la **traduce al momento** según la frase en la que está, con categoría gramatical, definición sencilla, un ejemplo y sinónimos. Desde el panel se puede **escuchar** (síntesis de voz del navegador, sin coste) y **guardar** en «Your words». Las fichas de «Key vocabulary» abren el mismo panel al pulsarlas.
+En cualquier texto marcado con `data-selectable` (resúmenes y títulos del feed y del debate, mensajes del debate, informe de fluidez y frases de «Your words») basta con **seleccionar una palabra o expresión** (doble clic, arrastrar o mantener pulsado en el móvil): aparece un panel que la **traduce al momento** según la frase en la que está, con categoría gramatical, definición sencilla, un ejemplo y sinónimos. Desde el panel se puede **escuchar** (síntesis de voz del navegador, sin coste) y **guardar** en «Your words». Las fichas de «Key vocabulary» abren el mismo panel al pulsarlas.
 
 - `POST /api/lookups` (`text`, `context`): explicación del agente `WordExplainer`, adaptada al nivel del usuario. Se cachea 30 días por selección, frase y nivel, así que repetir una consulta no cuesta nada.
 - `POST /api/vocabulary` (`word`, `context`): guarda la palabra con su frase, para repasar desde ya, y encola `AnalyzeVocabulary`, que guarda traducción y análisis. Si ya se había traducido, sale de la caché.
@@ -197,6 +197,8 @@ DEBATE_STT_MODEL=stt
 DEBATE_TTS_PROVIDER=openai
 DEBATE_TTS_MODEL=tts
 DEBATE_TTS_VOICE=af_heart          # una voz que acepte el modelo de TTS de la pasarela
+LOOKUP_AI_PROVIDER=openai-compatible
+LOOKUP_AI_MODEL=chat               # traducir una selección: el usuario espera, sin razonamiento
 ```
 
 No uses el driver `openai` para el texto: llama a la Responses API (`/responses`), no a `/chat/completions`. `chat`, `general`, `stt` y `tts` son nombres de modelo de la pasarela; elige modelos que:

@@ -6,6 +6,7 @@ use App\Ai\Agents\WordExplainer;
 use App\Enums\EnglishLevel;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
+use UnexpectedValueException;
 
 /**
  * Explains a selected word or expression in the sentence where the learner found it.
@@ -33,7 +34,8 @@ class WordLookup
      */
     public static function normalise(string $text): string
     {
-        return trim(self::squish($text), " \t\n\r\0\x0B.,;:!?\"'“”‘’()[]{}«»—–-");
+        // A regex, not trim(): trim() strips byte by byte and would cut "Brontë" or "€5" in half.
+        return (string) preg_replace('/^[\s.,;:!?"\'“”‘’()\[\]{}«»—–-]+|[\s.,;:!?"\'“”‘’()\[\]{}«»—–-]+$/u', '', self::squish($text));
     }
 
     private static function squish(string $text): string
@@ -52,6 +54,12 @@ class WordLookup
 
         $field = fn (string $key, int $limit) => Str::limit(trim((string) ($response[$key] ?? '')), $limit, '');
 
+        // An answer that is not the structured JSON decodes to nothing: fail instead of caching
+        // (and saving) an empty explanation for a month.
+        if ($field('translation', 120) === '' || $field('definition', 300) === '') {
+            throw new UnexpectedValueException('The word explainer returned an empty explanation.');
+        }
+
         return [
             'translation' => $field('translation', 120),
             'part_of_speech' => $field('part_of_speech', 40),
@@ -60,6 +68,7 @@ class WordLookup
             'synonyms' => collect($response['synonyms'] ?? [])
                 ->filter(fn ($synonym) => is_string($synonym) && trim($synonym) !== '')
                 ->map(fn (string $synonym) => trim($synonym))
+                ->unique(fn (string $synonym) => mb_strtolower($synonym))
                 ->take(WordExplainer::SYNONYMS)
                 ->values()
                 ->all(),

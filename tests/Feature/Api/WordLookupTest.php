@@ -5,6 +5,7 @@ namespace Tests\Feature\Api;
 use App\Ai\Agents\WordExplainer;
 use App\Enums\EnglishLevel;
 use App\Models\User;
+use App\Providers\AppServiceProvider;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Ai\Prompts\AgentPrompt;
 use Laravel\Sanctum\Sanctum;
@@ -96,6 +97,51 @@ class WordLookupTest extends TestCase
         $this->postJson('/api/lookups', $payload)->assertUnprocessable();
 
         WordExplainer::assertNeverPrompted();
+    }
+
+    public function test_an_empty_answer_is_an_error_and_is_not_cached(): void
+    {
+        WordExplainer::fake([[], self::EXPLANATION])->preventStrayPrompts();
+        Sanctum::actingAs(User::factory()->create());
+
+        $this->postJson('/api/lookups', ['text' => 'nuance'])->assertServiceUnavailable();
+        $this->postJson('/api/lookups', ['text' => 'nuance'])->assertOk()->assertJsonPath('translation', 'sobrellevar');
+    }
+
+    public function test_words_with_accents_and_symbols_are_accepted(): void
+    {
+        WordExplainer::fake([self::EXPLANATION, self::EXPLANATION])->preventStrayPrompts();
+        Sanctum::actingAs(User::factory()->create());
+
+        $this->postJson('/api/lookups', ['text' => 'Brontë'])->assertOk()->assertJsonPath('text', 'Brontë');
+        $this->postJson('/api/lookups', ['text' => '“€5 billion”'])->assertOk()->assertJsonPath('text', '€5 billion');
+    }
+
+    public function test_the_same_word_at_another_level_is_explained_again(): void
+    {
+        WordExplainer::fake([self::EXPLANATION, ['translation' => 'matiz'] + self::EXPLANATION])->preventStrayPrompts();
+        $user = User::factory()->level(EnglishLevel::B1)->create();
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/lookups', ['text' => 'nuance'])->assertOk()->assertJsonPath('translation', 'sobrellevar');
+        $user->update(['current_level' => EnglishLevel::C1]);
+        $this->postJson('/api/lookups', ['text' => 'nuance'])->assertOk()->assertJsonPath('translation', 'matiz');
+    }
+
+    public function test_lookups_are_rate_limited_per_minute_and_per_day(): void
+    {
+        WordExplainer::fake([self::EXPLANATION])->preventStrayPrompts();
+        Sanctum::actingAs(User::factory()->create());
+
+        // Cached after the first one, so only the limiter can stop them.
+        for ($i = 0; $i < AppServiceProvider::LOOKUPS_PER_MINUTE; $i++) {
+            $this->postJson('/api/lookups', ['text' => 'nuance'])->assertOk();
+        }
+        $this->postJson('/api/lookups', ['text' => 'nuance'])->assertTooManyRequests();
+
+        $this->travel(2)->minutes();
+        $this->postJson('/api/lookups', ['text' => 'nuance'])->assertOk();
+        $this->assertGreaterThan(AppServiceProvider::LOOKUPS_PER_MINUTE, AppServiceProvider::LOOKUPS_PER_DAY);
     }
 
     public function test_a_provider_failure_is_reported_as_unavailable(): void

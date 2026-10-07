@@ -1,42 +1,21 @@
 import { ref } from 'vue';
 import { postJson } from './http';
-
-// Same limits as config/lookup.php: longer selections are sentences, not vocabulary.
-const MAX_CHARACTERS = 60;
-const MAX_WORDS = 5;
-const MAX_CONTEXT = 500;
+import { isVocabulary, normalise, sentenceAt } from './text';
 
 /**
- * The open lookup panel: { text, context, anchor } or null. `anchor` is the selection's box
- * in page coordinates, so the panel stays next to it when the page scrolls.
+ * The open lookup panel: { text, context, target, focus } or null. `target` is the live Range of
+ * the selection (or the element that was tapped), so the panel can follow it when something scrolls.
  */
 export const activeLookup = ref(null);
 
 const explanations = new Map();
 
-export function openLookup(text, context, rect) {
-    activeLookup.value = {
-        text,
-        context,
-        anchor: { top: rect.top + window.scrollY, bottom: rect.bottom + window.scrollY, left: rect.left + window.scrollX, width: rect.width },
-    };
+export function openLookup(text, context, target, { focus = false } = {}) {
+    activeLookup.value = { text, context, target, focus };
 }
 
 export function closeLookup() {
     activeLookup.value = null;
-}
-
-/**
- * Trim spaces and the punctuation a double-click or a sloppy drag picks up.
- */
-export function normalise(text) {
-    return text
-        .replace(/\s+/g, ' ')
-        .replace(/^[\s.,;:!?"'“”‘’()[\]{}«»—–-]+|[\s.,;:!?"'“”‘’()[\]{}«»—–-]+$/g, '');
-}
-
-export function isVocabulary(text) {
-    return /\p{L}/u.test(text) && text.length <= MAX_CHARACTERS && text.split(' ').length <= MAX_WORDS;
 }
 
 /**
@@ -58,7 +37,17 @@ export function selectedVocabulary() {
 
     const text = normalise(selection.toString());
 
-    return isVocabulary(text) ? { text, context: sentenceAround(block, range), rect: range.getBoundingClientRect() } : null;
+    if (!isVocabulary(text)) {
+        return null;
+    }
+
+    // Offsets of the selection inside the block's text, to find its sentence.
+    const before = document.createRange();
+    before.selectNodeContents(block);
+    before.setEnd(range.startContainer, range.startOffset);
+    const start = before.toString().length;
+
+    return { text, context: sentenceAt(block.textContent, start, start + range.toString().length), target: range.cloneRange() };
 }
 
 function selectableBlock(node) {
@@ -66,38 +55,11 @@ function selectableBlock(node) {
 }
 
 /**
- * The sentence of `block` that contains the selection: it decides which meaning gets translated.
+ * Translate and explain a selection. Answers are kept for the rest of the visit, per user and level
+ * (`scope`), since the server pitches the explanation at the user's level.
  */
-function sentenceAround(block, range) {
-    const text = block.textContent;
-    const before = document.createRange();
-    before.selectNodeContents(block);
-    before.setEnd(range.startContainer, range.startOffset);
-
-    const start = before.toString().length;
-    const end = start + range.toString().length;
-    const boundary = /[.!?…]["”’)]*\s+/g;
-
-    let from = 0;
-    let to = text.length;
-    for (const match of text.matchAll(boundary)) {
-        const after = match.index + match[0].length;
-        if (after <= start) {
-            from = after;
-        } else if (match.index >= end) {
-            to = match.index + match[0].trimEnd().length;
-            break;
-        }
-    }
-
-    return text.slice(from, to).replace(/\s+/g, ' ').trim().slice(0, MAX_CONTEXT);
-}
-
-/**
- * Translate and explain a selection (answers are kept for the rest of the visit).
- */
-export async function explain(text, context, signal) {
-    const key = `${text.toLowerCase()}\n${context ?? ''}`;
+export async function explain(text, context, scope, signal) {
+    const key = `${scope}\n${text.toLowerCase()}\n${context ?? ''}`;
 
     if (!explanations.has(key)) {
         explanations.set(key, await postJson('/api/lookups', { text, context }, { signal }));
@@ -108,6 +70,16 @@ export async function explain(text, context, signal) {
 
 export function saveWord(word, context) {
     return postJson('/api/vocabulary', { word, context });
+}
+
+/**
+ * A message the learner can act on, instead of the framework's.
+ */
+export function friendlyError(error) {
+    if (error.status === 429) return "You're looking words up very fast. Wait a moment and try again.";
+    if (error.status === 401 || error.status === 419) return 'Your session has expired. Reload the page and sign in again.';
+
+    return error.message;
 }
 
 /**

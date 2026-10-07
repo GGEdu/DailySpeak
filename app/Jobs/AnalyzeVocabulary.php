@@ -18,6 +18,16 @@ class AnalyzeVocabulary implements ShouldBeUnique, ShouldQueue
     public int $tries = 3;
 
     /**
+     * A word removed before the job runs needs no analysis.
+     */
+    public bool $deleteWhenMissingModels = true;
+
+    /**
+     * Release the uniqueness lock even if a worker is killed mid-job.
+     */
+    public int $uniqueFor = 300;
+
+    /**
      * @var list<int>
      */
     public array $backoff = [10, 60];

@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Api;
 
+use App\Ai\Agents\WordExplainer;
 use App\Jobs\AnalyzeVocabulary;
 use App\Models\User;
 use App\Models\UserVocabulary;
@@ -67,6 +68,21 @@ class SaveWordTest extends TestCase
         $this->postJson('/api/vocabulary', ['word' => 'nuance'])->assertOk();
 
         Queue::assertNotPushed(AnalyzeVocabulary::class);
+    }
+
+    public function test_saving_a_word_just_translated_reuses_the_translation(): void
+    {
+        // This job must really run (synchronously), the rest stays faked.
+        Queue::fake()->except([AnalyzeVocabulary::class]);
+        WordExplainer::fake([WordLookupTest::EXPLANATION])->preventStrayPrompts();
+        Sanctum::actingAs($this->user);
+        $sentence = 'Are people   just powering through illness?';
+
+        $this->postJson('/api/lookups', ['text' => 'Powering through', 'context' => $sentence])->assertOk();
+        $this->postJson('/api/vocabulary', ['word' => 'Powering through', 'context' => $sentence])->assertCreated();
+
+        // One prompt in total: the job answered from the lookup cache.
+        $this->assertSame('sobrellevar', $this->user->vocabularies()->sole()->translation);
     }
 
     public function test_sentences_are_not_saved_as_words(): void

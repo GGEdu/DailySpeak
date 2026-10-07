@@ -16,7 +16,7 @@ class WordLookupController extends Controller
     public function __invoke(Request $request, WordLookup $lookup): JsonResponse
     {
         $data = $request->validate([
-            'text' => ['required', 'string', new VocabularySelection],
+            'text' => ['required', 'string', 'max:200', new VocabularySelection],
             'context' => ['nullable', 'string', 'max:2000'],
         ]);
 

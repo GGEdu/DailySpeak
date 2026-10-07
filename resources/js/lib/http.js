@@ -24,7 +24,7 @@ export async function postForm(url, body) {
     const data = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-        throw new Error(data.message ?? `Request failed (HTTP ${response.status}).`);
+        throw requestError(response, data);
     }
 
     return data;
@@ -49,8 +49,18 @@ export async function postJson(url, data, { signal } = {}) {
     const body = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-        throw new Error(body.message ?? `Request failed (HTTP ${response.status}).`);
+        throw requestError(response, body);
     }
 
     return body;
+}
+
+/**
+ * The server's message, with the HTTP status so callers can tell a rate limit from an expired session.
+ */
+function requestError(response, body) {
+    const error = new Error(body.message ?? `Request failed (HTTP ${response.status}).`);
+    error.status = response.status;
+
+    return error;
 }

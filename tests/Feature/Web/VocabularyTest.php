@@ -136,6 +136,16 @@ class VocabularyTest extends TestCase
         $this->assertNull($word->fresh()->analysis);
     }
 
+    public function test_analysing_a_word_twice_does_not_ask_again(): void
+    {
+        WordExplainer::fake()->preventStrayPrompts();
+        $word = UserVocabulary::factory()->create(['translation' => 'matiz', 'analysis' => ['definition' => 'A subtle difference.']]);
+
+        $this->actingAs($word->user)->post("/vocabulary/{$word->id}/analyze")->assertRedirect();
+
+        WordExplainer::assertNeverPrompted();
+    }
+
     public function test_users_cannot_analyse_someone_elses_words(): void
     {
         WordExplainer::fake()->preventStrayPrompts();

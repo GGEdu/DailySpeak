@@ -11,6 +11,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Ai\Prompts\AgentPrompt;
 use Tests\Feature\Api\WordLookupTest;
 use Tests\TestCase;
+use UnexpectedValueException;
 
 class AnalyzeVocabularyTest extends TestCase
 {
@@ -35,6 +36,26 @@ class AnalyzeVocabularyTest extends TestCase
             'synonyms' => ['push on', 'persevere', 'soldier on'],
         ], $word->analysis);
         WordExplainer::assertPrompted(fn (AgentPrompt $prompt) => str_contains($prompt->prompt, 'Sentence: Are people just powering through illness?'));
+    }
+
+    public function test_a_failed_explanation_leaves_the_word_unanalysed_for_a_retry(): void
+    {
+        WordExplainer::fake([[]]);
+        $word = UserVocabulary::factory()->create();
+
+        try {
+            AnalyzeVocabulary::dispatch($word);
+            $this->fail('An empty explanation must fail the job.');
+        } catch (UnexpectedValueException) {
+        }
+
+        $this->assertNull($word->fresh()->analysis);
+        $this->assertNull($word->fresh()->translation);
+    }
+
+    public function test_a_word_deleted_before_the_job_runs_is_skipped(): void
+    {
+        $this->assertTrue((new \ReflectionClass(AnalyzeVocabulary::class))->getDefaultProperties()['deleteWhenMissingModels']);
     }
 
     public function test_a_word_already_analysed_is_left_alone(): void
