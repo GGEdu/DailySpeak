@@ -60,6 +60,7 @@ const days = computed(() => {
             <p class="text-sm font-medium text-ink-400">{{ today }}</p>
             <h1 class="mt-2 text-3xl font-semibold tracking-tight text-ink-100 sm:text-4xl">Pick a story. Take a side.</h1>
             <p class="mt-3 max-w-xl text-ink-400">Read the summary, steal the vocabulary, then defend your opinion out loud.</p>
+            <p class="mt-2 max-w-xl text-sm text-ink-500">Select any word or expression to translate it and save it to your words.</p>
         </header>
 
         <form role="search" class="mt-8" @submit.prevent="runSearch">

@@ -56,7 +56,7 @@ const isEmpty = computed(
                                 Added to your words
                             </span>
                         </p>
-                        <p class="mt-1 text-sm text-ink-300 italic">“{{ item.context }}”</p>
+                        <p class="mt-1 text-sm text-ink-300 italic" data-selectable>“{{ item.context }}”</p>
                     </li>
                 </ul>
                 <Link href="/vocabulary" class="mt-4 inline-block text-sm font-medium text-ink-300 underline-offset-4 hover:text-ink-100 hover:underline">
@@ -69,7 +69,7 @@ const isEmpty = computed(
                 <ul class="mt-3 space-y-3 text-sm">
                     <li v-for="(item, index) in feedback.grammar_errors" :key="index">
                         <p class="text-ink-400 line-through decoration-listening/60">{{ item.error }}</p>
-                        <p class="mt-0.5 text-ink-100">{{ item.correction }}</p>
+                        <p class="mt-0.5 text-ink-100" data-selectable>{{ item.correction }}</p>
                     </li>
                 </ul>
             </section>

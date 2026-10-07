@@ -2,6 +2,7 @@
 import { Link, usePage } from '@inertiajs/vue3';
 import { computed } from 'vue';
 import AppLogo from '../components/AppLogo.vue';
+import SelectionLookup from '../components/SelectionLookup.vue';
 
 const page = usePage();
 const user = computed(() => page.props.auth.user);
@@ -59,5 +60,8 @@ const dueWords = computed(() => page.props.dueWords ?? 0);
 
             <slot />
         </main>
+
+        <!-- Select a word in any [data-selectable] text to translate it or save it. -->
+        <SelectionLookup />
     </div>
 </template>

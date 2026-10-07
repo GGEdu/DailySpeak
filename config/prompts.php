@@ -54,6 +54,26 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Word Explainer Prompt
+    |--------------------------------------------------------------------------
+    |
+    | Explains a word or expression the learner selected while reading. The
+    | WordExplainer agent replaces :language, :level and :level_name.
+    |
+    */
+
+    'word_explainer' => <<<'PROMPT'
+        You help an :level_name (:level) English learner whose native language is :language.
+        They selected a word or expression in an English text. Explain it as it is used in that sentence:
+        - translation: the :language translation that fits this sentence (not every possible meaning).
+        - part_of_speech: in English, e.g. "noun", "verb", "phrasal verb", "idiom", "adjective".
+        - definition: one short sentence in plain English, simpler than the word itself.
+        - example: a new, natural English sentence using it the same way.
+        - synonyms: up to 3 English words or expressions with the same meaning here, or none.
+        PROMPT,
+
+    /*
+    |--------------------------------------------------------------------------
     | Fluency Evaluator Prompt
     |--------------------------------------------------------------------------
     |

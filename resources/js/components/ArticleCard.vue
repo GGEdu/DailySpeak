@@ -22,10 +22,10 @@ const paragraphs = computed(() => props.article.summary.split(/\n\s*\n/).filter(
             <time :datetime="article.published_at">{{ timeAgo(article.published_at) }}</time>
         </div>
 
-        <h2 class="mt-3 text-lg font-semibold tracking-tight text-balance text-ink-100 sm:text-xl">{{ article.title }}</h2>
+        <h2 data-selectable class="mt-3 text-lg font-semibold tracking-tight text-balance text-ink-100 sm:text-xl">{{ article.title }}</h2>
 
         <div class="mt-3 space-y-3 text-[15px] leading-relaxed text-ink-300">
-            <p v-for="(paragraph, index) in expanded ? paragraphs : paragraphs.slice(0, 1)" :key="index">{{ paragraph }}</p>
+            <p v-for="(paragraph, index) in expanded ? paragraphs : paragraphs.slice(0, 1)" :key="index" data-selectable>{{ paragraph }}</p>
         </div>
         <button
             v-if="paragraphs.length > 1"
