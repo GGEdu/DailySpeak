@@ -56,6 +56,19 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Trusted Proxies
+    |--------------------------------------------------------------------------
+    |
+    | Comma-separated IPs or CIDRs of the reverse proxies in front of the app
+    | (e.g. the one terminating TLS), or "*" to trust whichever peer connects.
+    | Empty trusts none: X-Forwarded-* headers are then ignored.
+    |
+    */
+
+    'trusted_proxies' => env('TRUSTED_PROXIES'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Application Timezone
     |--------------------------------------------------------------------------
     |

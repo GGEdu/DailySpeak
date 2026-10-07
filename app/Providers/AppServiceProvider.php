@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use App\Models\User;
 use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Middleware\TrustProxies;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
@@ -29,6 +30,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        $this->trustProxies();
+
         Gate::define('admin', fn (User $user) => $user->is_admin);
 
         RateLimiter::for('debate-audio', function (Request $request) {
@@ -36,5 +39,18 @@ class AppServiceProvider extends ServiceProvider
                 ? Limit::none()
                 : Limit::perMinute(self::AUDIO_UPLOADS_PER_MINUTE)->by($request->user()?->id ?: $request->ip());
         });
+    }
+
+    /**
+     * Behind a reverse proxy that terminates TLS, trust its X-Forwarded-* headers so URLs use
+     * https and the host the browser asked for, and rate limits see each client's own IP.
+     */
+    private function trustProxies(): void
+    {
+        $proxies = trim((string) config('app.trusted_proxies'));
+
+        if ($proxies !== '') {
+            TrustProxies::at($proxies === '*' ? '*' : array_map('trim', explode(',', $proxies)));
+        }
     }
 }
