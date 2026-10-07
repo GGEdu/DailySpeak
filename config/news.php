@@ -3,18 +3,9 @@
 return [
 
     /*
-    |--------------------------------------------------------------------------
-    | RSS Feeds
-    |--------------------------------------------------------------------------
-    |
-    | Comma-separated list of RSS 2.0 feeds read by the news:fetch command.
-    |
+    | The RSS feeds themselves are stored in the news_sources table and are
+    | managed by admins at /admin/sources.
     */
-
-    'feeds' => array_values(array_filter(array_map(
-        'trim',
-        explode(',', (string) env('NEWS_FEEDS', 'https://feeds.bbci.co.uk/news/world/rss.xml')),
-    ))),
 
     /*
     |--------------------------------------------------------------------------

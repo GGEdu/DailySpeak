@@ -5,6 +5,7 @@ import AppLogo from '../components/AppLogo.vue';
 
 const page = usePage();
 const user = computed(() => page.props.auth.user);
+const status = computed(() => page.props.flash?.status);
 </script>
 
 <template>
@@ -22,6 +23,7 @@ const user = computed(() => page.props.auth.user);
 
                 <nav class="flex items-center gap-3 text-sm sm:gap-5">
                     <Link href="/feed" class="hidden text-ink-400 transition hover:text-ink-100 sm:inline">Today's news</Link>
+                    <Link v-if="user.is_admin" href="/admin/sources" class="text-ink-400 transition hover:text-ink-100">Sources</Link>
                     <span
                         class="rounded-full border border-white/10 px-2.5 py-0.5 text-xs font-medium text-ink-300"
                         :title="`Your English level: ${user.current_level}`"
@@ -35,6 +37,14 @@ const user = computed(() => page.props.auth.user);
         </header>
 
         <main class="relative mx-auto max-w-6xl px-5 py-10 sm:px-8 sm:py-14">
+            <p
+                v-if="status"
+                role="status"
+                class="mx-auto mb-8 max-w-3xl rounded-xl border border-emerald-400/20 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-200"
+            >
+                {{ status }}
+            </p>
+
             <slot />
         </main>
     </div>

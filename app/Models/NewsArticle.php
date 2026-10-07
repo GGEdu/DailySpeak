@@ -6,9 +6,10 @@ use Database\Factories\NewsArticleFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-#[Fillable(['title', 'source_url', 'summary', 'key_vocabulary', 'published_at'])]
+#[Fillable(['news_source_id', 'title', 'source_url', 'summary', 'key_vocabulary', 'published_at'])]
 class NewsArticle extends Model
 {
     /** @use HasFactory<NewsArticleFactory> */
@@ -25,6 +26,16 @@ class NewsArticle extends Model
             'key_vocabulary' => 'array',
             'published_at' => 'datetime',
         ];
+    }
+
+    /**
+     * The RSS feed the article was harvested from (null for ad-hoc --feed runs).
+     *
+     * @return BelongsTo<NewsSource, $this>
+     */
+    public function newsSource(): BelongsTo
+    {
+        return $this->belongsTo(NewsSource::class);
     }
 
     /**

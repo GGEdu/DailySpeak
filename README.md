@@ -51,7 +51,8 @@ En Sail, el servicio `scheduler` ejecuta `php artisan schedule:work` de forma co
 ```
 
 ```bash
-./vendor/bin/sail artisan news:fetch                 # feeds de NEWS_FEEDS
+./vendor/bin/sail artisan news:fetch                 # todas las fuentes activas
+./vendor/bin/sail artisan news:fetch --source=2      # solo una fuente (aunque esté pausada)
 ./vendor/bin/sail artisan news:fetch --limit=2       # máx. artículos nuevos por feed
 ./vendor/bin/sail artisan news:fetch --feed=https://feeds.bbci.co.uk/news/technology/rss.xml
 ./vendor/bin/sail artisan schedule:list              # próximas ejecuciones (en UTC)
@@ -64,8 +65,9 @@ Configuración (`.env`):
 | `GEMINI_API_KEY` / `OPENAI_API_KEY` | —                                       | Clave del proveedor elegido |
 | `NEWS_AI_PROVIDER`            | `gemini`                                      | Proveedor del Laravel AI SDK (`gemini`, `openai`, …) |
 | `NEWS_AI_MODEL`               | modelo por defecto del proveedor              | p. ej. `gemini-2.5-flash` o `gpt-4o-mini` |
-| `NEWS_FEEDS`                  | `https://feeds.bbci.co.uk/news/world/rss.xml` | Feeds RSS separados por comas |
 | `NEWS_MAX_ARTICLES_PER_FEED`  | `5`                                           | Cada artículo nuevo es una llamada al LLM |
+
+Las fuentes RSS se guardan en la tabla `news_sources` y se gestionan desde **/admin/sources** (solo administradores): alta con validación (el feed se descarga y se comprueba antes de guardarlo), pausar/activar, eliminar y «Fetch now» para leer una fuente al momento por la cola. La migración crea BBC News – World como fuente inicial; úsala solo en desarrollo, ya que sus condiciones exigen licencia para uso comercial.
 
 El prompt de resumen está en `config/prompts.php`. Los artículos ya guardados no se vuelven a resumir, y los que no tienen texto suficiente en su página (vídeos, directos) se omiten en lugar de resumirse a partir de la entradilla del RSS.
 
@@ -105,6 +107,15 @@ Inertia + Vue 3 con un diseño oscuro (`resources/js`):
 | `/debates/{id}`   | `pages/Debate.vue`    | Chat de voz con el tutor |
 
 La vista de debate graba con `MediaRecorder` y usa la Web Audio API (`AnalyserNode`) para el visualizador del micrófono y de la respuesta. Muestra el estado **Listening → Thinking → Speaking**, sube cada turno a la API con la sesión del navegador y escucha `AIResponseGenerated` / `DebateTurnFailed` en el canal privado con Echo para reproducir la respuesta automáticamente. Se puede interrumpir al tutor pulsando el micro y usar la barra espaciadora como atajo.
+
+## Administradores
+
+```bash
+./vendor/bin/sail artisan user:admin tu@email.com            # conceder
+./vendor/bin/sail artisan user:admin tu@email.com --revoke   # retirar
+```
+
+Los administradores gestionan las fuentes de noticias, no tienen límite de turnos de voz (el resto: 20 por minuto) y pueden abrir Horizon fuera de local. El usuario de prueba del seeder es administrador.
 
 ## Tests
 

@@ -4,6 +4,7 @@ namespace Tests\Feature\Console;
 
 use App\Ai\Agents\NewsSummarizer;
 use App\Models\NewsArticle;
+use App\Models\NewsSource;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
@@ -24,6 +25,8 @@ class FetchDailyNewsTest extends TestCase
 
     private const VOCABULARY = ['overhaul', 'congestion', 'long overdue', 'overly ambitious', 'stall'];
 
+    private NewsSource $source;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -31,7 +34,9 @@ class FetchDailyNewsTest extends TestCase
         Sleep::fake();
         Http::preventStrayRequests();
 
-        config(['news.feeds' => ['https://feeds.example.test/world.xml']]);
+        // Replace the default BBC source created by the migrations with a faked feed.
+        NewsSource::query()->delete();
+        $this->source = NewsSource::factory()->create(['feed_url' => 'https://feeds.example.test/world.xml']);
     }
 
     public function test_it_summarises_new_articles_and_stores_them(): void
@@ -181,6 +186,59 @@ class FetchDailyNewsTest extends TestCase
 
         NewsSummarizer::assertNeverPrompted();
         $this->assertSame(0, NewsArticle::count());
+    }
+
+    public function test_articles_are_linked_to_their_source_and_the_source_run_is_recorded(): void
+    {
+        $this->freezeSecond();
+        $this->fakeHttp();
+        $this->fakeSummaries();
+
+        $this->artisan('news:fetch')->assertSuccessful();
+
+        $this->assertSame(2, $this->source->articles()->count());
+        $this->assertTrue($this->source->fresh()->last_fetched_at->equalTo(now()));
+        $this->assertNull($this->source->fresh()->last_error);
+    }
+
+    public function test_paused_sources_are_skipped_unless_requested_explicitly(): void
+    {
+        $this->source->update(['is_active' => false]);
+        $this->fakeHttp();
+        $this->fakeSummaries();
+
+        $this->artisan('news:fetch')
+            ->expectsOutputToContain('There are no active news sources')
+            ->assertSuccessful();
+        NewsSummarizer::assertNeverPrompted();
+
+        $this->artisan('news:fetch', ['--source' => [$this->source->id], '--limit' => 1])->assertSuccessful();
+        NewsSummarizer::assertPromptedTimes(1);
+    }
+
+    public function test_every_active_source_is_read(): void
+    {
+        NewsSource::factory()->create(['feed_url' => 'https://feeds.other.test/rss.xml']);
+        NewsSource::factory()->inactive()->create(['feed_url' => 'https://feeds.paused.test/rss.xml']);
+        $this->fakeHttp(['feeds.other.test/*' => Http::response(file_get_contents(base_path('tests/Fixtures/news/feed.xml')))]);
+        $this->fakeSummaries();
+
+        $this->artisan('news:fetch')->assertSuccessful();
+
+        Http::assertSent(fn ($request) => $request->url() === 'https://feeds.example.test/world.xml');
+        Http::assertSent(fn ($request) => $request->url() === 'https://feeds.other.test/rss.xml');
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), 'feeds.paused.test'));
+    }
+
+    public function test_a_failing_source_records_the_error(): void
+    {
+        $this->fakeHttp(['feeds.example.test/*' => Http::response('', 503)]);
+        $this->fakeSummaries();
+
+        $this->artisan('news:fetch')->assertFailed();
+
+        $this->assertStringContainsString('503', $this->source->fresh()->last_error);
+        $this->assertNull($this->source->fresh()->last_fetched_at);
     }
 
     public function test_it_is_scheduled_daily_at_three_am_madrid_time(): void

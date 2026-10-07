@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Admin\NewsSourceController;
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\Auth\RegisteredUserController;
 use App\Http\Controllers\DebateSessionController;
@@ -29,4 +30,12 @@ Route::middleware('auth')->group(function () {
     Route::get('/debates/{debate}', [DebateSessionController::class, 'show'])
         ->can('view', 'debate')
         ->name('debates.show');
+});
+
+Route::middleware(['auth', 'can:admin'])->prefix('admin')->name('admin.')->group(function () {
+    Route::get('/sources', [NewsSourceController::class, 'index'])->name('sources.index');
+    Route::post('/sources', [NewsSourceController::class, 'store'])->name('sources.store');
+    Route::patch('/sources/{source}', [NewsSourceController::class, 'update'])->name('sources.update');
+    Route::delete('/sources/{source}', [NewsSourceController::class, 'destroy'])->name('sources.destroy');
+    Route::post('/sources/{source}/fetch', [NewsSourceController::class, 'fetch'])->name('sources.fetch');
 });

@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Ai\Agents\NewsSummarizer;
 use App\Models\NewsArticle;
+use App\Models\NewsSource;
 use App\Services\News\ArticleTextExtractor;
 use App\Services\News\FeedItem;
 use App\Services\News\RssFeedReader;
@@ -15,7 +16,8 @@ use Throwable;
 use UnexpectedValueException;
 
 #[Signature('news:fetch
-    {--feed=* : RSS feed URL to read instead of the configured feeds}
+    {--source=* : ID of a news source to read (default: every active source)}
+    {--feed=* : Ad-hoc RSS feed URL to read instead of the stored sources}
     {--limit= : Maximum number of new articles to summarise per feed}')]
 #[Description('Harvest the latest news from RSS feeds and summarise them for C1 learners')]
 class FetchDailyNews extends Command
@@ -31,10 +33,9 @@ class FetchDailyNews extends Command
      */
     public function handle(RssFeedReader $reader, ArticleTextExtractor $extractor): int
     {
-        $feeds = $this->option('feed') ?: config('news.feeds');
         $limit = (int) ($this->option('limit') ?? config('news.max_articles_per_feed'));
 
-        foreach ($feeds as $feed) {
+        foreach ($this->feeds() as [$feed, $source]) {
             $this->components->info("Reading {$feed}");
 
             try {
@@ -42,16 +43,19 @@ class FetchDailyNews extends Command
             } catch (Throwable $e) {
                 report($e);
                 $this->components->error("Could not read the feed: {$e->getMessage()}");
+                $source?->update(['last_error' => Str::limit($e->getMessage(), 1000)]);
                 $this->failed++;
 
                 continue;
             }
 
+            $source?->update(['last_fetched_at' => now(), 'last_error' => null]);
+
             $known = NewsArticle::whereIn('source_url', $items->pluck('url'))->pluck('source_url');
 
             $items->whereNotIn('url', $known)
                 ->take($limit)
-                ->each(fn (FeedItem $item) => $this->harvest($item, $extractor));
+                ->each(fn (FeedItem $item) => $this->harvest($item, $extractor, $source));
         }
 
         $this->newLine();
@@ -61,9 +65,37 @@ class FetchDailyNews extends Command
     }
 
     /**
+     * Feeds to read, each paired with its stored source (null for ad-hoc --feed URLs).
+     *
+     * @return list<array{0: string, 1: ?NewsSource}>
+     */
+    private function feeds(): array
+    {
+        if ($urls = $this->option('feed')) {
+            return array_map(fn (string $url) => [$url, null], $urls);
+        }
+
+        // Explicit --source IDs may include paused sources (e.g. to test one from the admin page).
+        $sources = NewsSource::query()
+            ->when(
+                $this->option('source'),
+                fn ($query, array $ids) => $query->whereKey($ids),
+                fn ($query) => $query->where('is_active', true),
+            )
+            ->orderBy('id')
+            ->get();
+
+        if ($sources->isEmpty()) {
+            $this->components->warn('There are no active news sources. Add one at /admin/sources.');
+        }
+
+        return $sources->map(fn (NewsSource $source) => [$source->feed_url, $source])->all();
+    }
+
+    /**
      * Summarise a single feed item and store it as a news article.
      */
-    private function harvest(FeedItem $item, ArticleTextExtractor $extractor): void
+    private function harvest(FeedItem $item, ArticleTextExtractor $extractor, ?NewsSource $source): void
     {
         $text = $extractor->extract($item->url);
 
@@ -78,6 +110,7 @@ class FetchDailyNews extends Command
             [$summary, $vocabulary] = $this->summarise($item, $text);
 
             NewsArticle::create([
+                'news_source_id' => $source?->id,
                 'title' => Str::limit($item->title, 255, ''),
                 'source_url' => $item->url,
                 'summary' => $summary,
