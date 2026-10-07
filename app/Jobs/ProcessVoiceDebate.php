@@ -14,6 +14,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Support\Benchmark;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Laravel\Ai\Audio;
@@ -28,6 +29,11 @@ use UnexpectedValueException;
 class ProcessVoiceDebate implements ShouldQueue
 {
     use Queueable;
+
+    /**
+     * How long a tutor reply is kept so a retry can reuse it. Longer than retryUntil(), so every retry sees it.
+     */
+    private const REPLY_TTL_MINUTES = 10;
 
     /**
      * The number of seconds the job can run (STT + LLM + TTS round trips). The per-request timeouts in
@@ -115,6 +121,8 @@ class ProcessVoiceDebate implements ShouldQueue
             'audio_path' => $audioPath,
         ]);
 
+        Cache::forget($this->replyCacheKey($turn));
+
         // The reply is already stored, so a broadcasting outage must not trigger a retry
         // (and a second, different answer). Clients can reload the history instead.
         rescue(fn () => AIResponseGenerated::dispatch($message, $turn));
@@ -172,17 +180,31 @@ class ProcessVoiceDebate implements ShouldQueue
     }
 
     /**
-     * Ask the tutor for its reply to the given turn.
+     * Ask the tutor for its reply to the given turn. A retry after a failed synthesis reuses the reply
+     * already produced, so it costs no second LLM call and the user gets the answer that was spoken.
      */
     private function reply(DebateMessage $turn): string
     {
+        $cached = Cache::get($this->replyCacheKey($turn));
+
+        if (is_string($cached) && $cached !== '') {
+            return $cached;
+        }
+
         $reply = trim((new DebateTutor($this->debate, $turn))->prompt($turn->transcript)->text);
 
         if ($reply === '') {
             throw new UnexpectedValueException('The tutor returned an empty reply.');
         }
 
+        Cache::put($this->replyCacheKey($turn), $reply, now()->addMinutes(self::REPLY_TTL_MINUTES));
+
         return $reply;
+    }
+
+    private function replyCacheKey(DebateMessage $turn): string
+    {
+        return 'debate-reply:'.$turn->getKey();
     }
 
     /**

@@ -308,6 +308,29 @@ class ProcessVoiceDebateTest extends TestCase
         Event::assertNotDispatched(DebateTurnFailed::class);
     }
 
+    public function test_a_retry_after_a_failed_synthesis_does_not_ask_the_tutor_again(): void
+    {
+        Transcription::fake([self::USER_SAYS]);
+        DebateTutor::fake([self::TUTOR_SAYS]);
+        Audio::fake(fn () => throw new RuntimeException('Speech service down'));
+
+        try {
+            ProcessVoiceDebate::dispatch($this->debate, self::RECORDING);
+            $this->fail('The first attempt should have failed.');
+        } catch (RuntimeException) {
+            //
+        }
+
+        // The retry reuses the transcript and the reply text, and only repeats the speech synthesis.
+        Audio::fake([base64_encode('mp3')]);
+        ProcessVoiceDebate::dispatch($this->debate, self::RECORDING);
+
+        DebateTutor::assertPromptedTimes(1);
+        Audio::assertGenerated(fn (AudioPrompt $prompt) => $prompt->text === self::TUTOR_SAYS);
+        $this->assertSame(1, $this->debate->messages()->where('role', MessageRole::Assistant)->count());
+        $this->assertSame(self::TUTOR_SAYS, $this->debate->messages()->where('role', MessageRole::Assistant)->sole()->transcript);
+    }
+
     public function test_a_turn_queued_before_the_debate_was_finished_is_dropped_without_a_reply(): void
     {
         // The debate was closed, and its report written, while this turn was waiting in the queue.
