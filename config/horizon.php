@@ -215,6 +215,23 @@ return [
             'timeout' => 120,
             'nice' => 0,
         ],
+
+        // News harvests run here, not on supervisor-1: a harvest of several articles takes minutes.
+        // Its timeout must stay above App\Jobs\FetchNewsSource::$timeout and below the news
+        // connection's retry_after (config/queue.php).
+        'supervisor-news' => [
+            'connection' => 'news',
+            'queue' => ['news'],
+            'balance' => 'simple',
+            'maxProcesses' => 1,
+            'maxTime' => 0,
+            'maxJobs' => 0,
+            'memory' => 128,
+            'tries' => 1,
+            'sleep' => 0,
+            'timeout' => 1560,
+            'nice' => 0,
+        ],
     ],
 
     'environments' => [

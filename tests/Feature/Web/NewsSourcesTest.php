@@ -2,10 +2,10 @@
 
 namespace Tests\Feature\Web;
 
+use App\Jobs\FetchNewsSource;
 use App\Models\NewsArticle;
 use App\Models\NewsSource;
 use App\Models\User;
-use Illuminate\Foundation\Console\QueuedCommand;
 use App\Services\News\HostResolver;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
@@ -123,7 +123,7 @@ class NewsSourcesTest extends TestCase
         $this->assertFalse($source->fresh()->is_active);
 
         $this->actingAs($this->admin)->post("/admin/sources/{$source->id}/fetch")->assertSessionHas('status');
-        Queue::assertPushed(QueuedCommand::class);
+        Queue::assertPushedOn('news', FetchNewsSource::class, fn (FetchNewsSource $job) => $job->sourceId === $source->id);
 
         $this->actingAs($this->admin)->delete("/admin/sources/{$source->id}")->assertRedirect();
         $this->assertModelMissing($source);

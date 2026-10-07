@@ -4,10 +4,10 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreNewsSourceRequest;
+use App\Jobs\FetchNewsSource;
 use App\Models\NewsSource;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Artisan;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -65,12 +65,12 @@ class NewsSourceController extends Controller
     }
 
     /**
-     * Harvest a single source now, on the queue.
+     * Harvest a single source now, on its own queue (see FetchNewsSource for why it is not `news:fetch`).
      */
     public function fetch(NewsSource $source): RedirectResponse
     {
-        Artisan::queue('news:fetch', ['--source' => [$source->id]]);
+        FetchNewsSource::dispatch($source->id);
 
-        return back()->with('status', "Fetching {$source->name}… new articles will appear in the feed in a minute.");
+        return back()->with('status', "Fetching {$source->name}… new articles will appear in the feed as they are summarised.");
     }
 }

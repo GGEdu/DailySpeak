@@ -75,6 +75,17 @@ return [
             'after_commit' => false,
         ],
 
+        // Long-running news harvests (see App\Jobs\FetchNewsSource). retry_after must stay above
+        // the supervisor timeout in config/horizon.php, or Redis re-delivers a job still running.
+        'news' => [
+            'driver' => 'redis',
+            'connection' => env('REDIS_QUEUE_CONNECTION', 'default'),
+            'queue' => 'news',
+            'retry_after' => (int) env('NEWS_QUEUE_RETRY_AFTER', 1800),
+            'block_for' => 1,
+            'after_commit' => false,
+        ],
+
         'deferred' => [
             'driver' => 'deferred',
         ],
