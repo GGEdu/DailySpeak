@@ -63,6 +63,27 @@ return [
 
     'max_article_characters' => 12000,
 
+    // Items whose page has no usable text (videos, live pages) are not downloaded again for this many days.
+    'skipped_items_days' => 7,
+
+    /*
+    |--------------------------------------------------------------------------
+    | Downloads
+    |--------------------------------------------------------------------------
+    |
+    | Feeds and article pages come from arbitrary hosts. Responses are capped
+    | in size, and any host that resolves to a private, loopback, link-local
+    | or otherwise reserved address is refused, redirects included. Enable
+    | NEWS_ALLOW_PRIVATE_HOSTS only on a development machine.
+    |
+    */
+
+    'max_feed_bytes' => 5 * 1024 * 1024,
+
+    'max_page_bytes' => 3 * 1024 * 1024,
+
+    'allow_private_hosts' => (bool) env('NEWS_ALLOW_PRIVATE_HOSTS', false),
+
     /*
     |--------------------------------------------------------------------------
     | Summarisation Model

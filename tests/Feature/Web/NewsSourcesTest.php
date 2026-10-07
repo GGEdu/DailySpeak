@@ -2,15 +2,17 @@
 
 namespace Tests\Feature\Web;
 
+use App\Jobs\FetchNewsSource;
 use App\Models\NewsArticle;
 use App\Models\NewsSource;
 use App\Models\User;
-use Illuminate\Foundation\Console\QueuedCommand;
+use App\Services\News\HostResolver;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Sleep;
 use Inertia\Testing\AssertableInertia as Assert;
+use Tests\Support\FakeHostResolver;
 use Tests\TestCase;
 
 class NewsSourcesTest extends TestCase
@@ -135,6 +137,27 @@ class NewsSourcesTest extends TestCase
         $this->assertSame(1, NewsSource::count());
     }
 
+    public function test_feeds_on_private_or_reserved_addresses_are_refused_before_any_request(): void
+    {
+        $this->app->instance(HostResolver::class, new FakeHostResolver(['internal.example.test' => ['10.0.0.5']]));
+
+        $cases = [
+            'https://internal.example.test/rss.xml',
+            'https://127.0.0.1/rss.xml',
+            'https://169.254.169.254/latest/meta-data/',
+            'https://[::1]/rss.xml',
+        ];
+
+        foreach ($cases as $url) {
+            $this->actingAs($this->admin)
+                ->post('/admin/sources', ['name' => 'Internal', 'feed_url' => $url])
+                ->assertSessionHasErrors(['feed_url' => 'This URL points to a private or reserved network address.']);
+        }
+
+        Http::assertNothingSent();
+        $this->assertSame(1, NewsSource::count());
+    }
+
     public function test_admins_can_pause_fetch_and_delete_a_source(): void
     {
         Queue::fake();
@@ -145,7 +168,7 @@ class NewsSourcesTest extends TestCase
         $this->assertFalse($source->fresh()->is_active);
 
         $this->actingAs($this->admin)->post("/admin/sources/{$source->id}/fetch")->assertSessionHas('status');
-        Queue::assertPushed(QueuedCommand::class);
+        Queue::assertPushedOn('news', FetchNewsSource::class, fn (FetchNewsSource $job) => $job->sourceId === $source->id);
 
         $this->actingAs($this->admin)->delete("/admin/sources/{$source->id}")->assertRedirect();
         $this->assertModelMissing($source);

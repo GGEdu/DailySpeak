@@ -3,14 +3,18 @@
 namespace Tests\Feature\News;
 
 use App\Services\News\ArticleTextExtractor;
+use App\Services\News\HostResolver;
+use App\Services\News\UnsafeUrlException;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Http;
+use Tests\Support\FakeHostResolver;
 use Tests\TestCase;
 
 class ArticleTextExtractorTest extends TestCase
 {
     public function test_it_extracts_the_article_body(): void
     {
-        $text = (new ArticleTextExtractor)->fromHtml(file_get_contents(base_path('tests/Fixtures/news/article.html')));
+        $text = app(ArticleTextExtractor::class)->fromHtml(file_get_contents(base_path('tests/Fixtures/news/article.html')));
 
         $paragraphs = explode("\n\n", $text);
 
@@ -28,14 +32,14 @@ class ArticleTextExtractorTest extends TestCase
     {
         config(['news.max_article_characters' => 20]);
 
-        $text = (new ArticleTextExtractor)->fromHtml('<html><body><main><p>'.str_repeat('á', 50).'</p></main></body></html>');
+        $text = app(ArticleTextExtractor::class)->fromHtml('<html><body><main><p>'.str_repeat('á', 50).'</p></main></body></html>');
 
         $this->assertSame(str_repeat('á', 20), $text);
     }
 
     public function test_it_returns_null_when_there_is_no_text(): void
     {
-        $this->assertNull((new ArticleTextExtractor)->fromHtml('<html><body><video src="clip.mp4"></video></body></html>'));
+        $this->assertNull(app(ArticleTextExtractor::class)->fromHtml('<html><body><video src="clip.mp4"></video></body></html>'));
     }
 
     public function test_it_downloads_the_article_page(): void
@@ -47,10 +51,32 @@ class ArticleTextExtractorTest extends TestCase
             'news.example.test/down' => Http::failedConnection(),
         ]);
 
-        $extractor = new ArticleTextExtractor;
+        $extractor = app(ArticleTextExtractor::class);
 
         $this->assertStringStartsWith('The city council', $extractor->extract('https://news.example.test/ok'));
         $this->assertNull($extractor->extract('https://news.example.test/missing'));
         $this->assertNull($extractor->extract('https://news.example.test/down'));
+    }
+
+    public function test_download_reports_failures_instead_of_hiding_them(): void
+    {
+        Http::preventStrayRequests();
+        Http::fake(['news.example.test/missing' => Http::response('Not found', 404)]);
+
+        $this->expectException(RequestException::class);
+
+        app(ArticleTextExtractor::class)->download('https://news.example.test/missing');
+    }
+
+    public function test_private_article_urls_are_never_downloaded(): void
+    {
+        Http::preventStrayRequests();
+        $this->app->instance(HostResolver::class, new FakeHostResolver(['news.example.test' => ['10.0.0.9']]));
+
+        $this->assertThrows(
+            fn () => app(ArticleTextExtractor::class)->download('https://news.example.test/story'),
+            UnsafeUrlException::class,
+        );
+        Http::assertNothingSent();
     }
 }
