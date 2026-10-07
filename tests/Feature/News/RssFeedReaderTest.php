@@ -16,7 +16,7 @@ class RssFeedReaderTest extends TestCase
     {
         $this->freezeSecond();
 
-        $items = (new RssFeedReader)->parse(file_get_contents(base_path('tests/Fixtures/news/feed.xml')));
+        $items = app(RssFeedReader::class)->parse(file_get_contents(base_path('tests/Fixtures/news/feed.xml')));
 
         $this->assertContainsOnlyInstancesOf(FeedItem::class, $items);
         $this->assertSame([
@@ -41,7 +41,7 @@ class RssFeedReaderTest extends TestCase
     {
         $this->expectException(UnexpectedValueException::class);
 
-        (new RssFeedReader)->parse('<html><body>Not a feed</body></html>');
+        app(RssFeedReader::class)->parse('<html><body>Not a feed</body></html>');
     }
 
     public function test_it_downloads_the_feed(): void
@@ -49,7 +49,7 @@ class RssFeedReaderTest extends TestCase
         Http::preventStrayRequests();
         Http::fake(['feeds.example.test/*' => Http::response(file_get_contents(base_path('tests/Fixtures/news/feed.xml')))]);
 
-        $items = (new RssFeedReader)->read('https://feeds.example.test/world.xml');
+        $items = app(RssFeedReader::class)->read('https://feeds.example.test/world.xml');
 
         $this->assertCount(3, $items);
         Http::assertSent(fn ($request) => $request->url() === 'https://feeds.example.test/world.xml'
@@ -64,6 +64,6 @@ class RssFeedReaderTest extends TestCase
 
         $this->expectException(RequestException::class);
 
-        (new RssFeedReader)->read('https://feeds.example.test/world.xml');
+        app(RssFeedReader::class)->read('https://feeds.example.test/world.xml');
     }
 }

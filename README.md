@@ -67,6 +67,7 @@ Configuración (`.env`):
 | `NEWS_AI_PROVIDER`            | `gemini`                                      | Proveedor del Laravel AI SDK (`gemini`, `openai`, …) |
 | `NEWS_AI_MODEL`               | modelo por defecto del proveedor              | p. ej. `gemini-2.5-flash` o `gpt-4o-mini` |
 | `NEWS_MAX_ARTICLES_PER_FEED`  | `5`                                           | Cada artículo nuevo es una llamada al LLM |
+| `NEWS_ALLOW_PRIVATE_HOSTS`    | `false`                                       | Permite feeds y artículos en IP privadas, loopback o reservadas. Solo en desarrollo local |
 
 Las fuentes RSS se guardan en la tabla `news_sources` y se gestionan desde **/admin/sources** (solo administradores): alta con validación (el feed se descarga y se comprueba antes de guardarlo), pausar/activar, eliminar y «Fetch now» para leer una fuente al momento por la cola. La migración crea BBC News – World como fuente inicial; úsala solo en desarrollo, ya que sus condiciones exigen licencia para uso comercial.
 

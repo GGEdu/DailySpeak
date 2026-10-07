@@ -6,13 +6,14 @@ use Carbon\CarbonImmutable;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use SimpleXMLElement;
 use UnexpectedValueException;
 
 class RssFeedReader
 {
+    public function __construct(private readonly SafeHttpFetcher $fetcher) {}
+
     /**
      * Download and parse an RSS 2.0 feed.
      *
@@ -20,17 +21,12 @@ class RssFeedReader
      *
      * @throws RequestException
      * @throws ConnectionException
+     * @throws UnsafeUrlException
      * @throws UnexpectedValueException
      */
     public function read(string $url): Collection
     {
-        $xml = Http::timeout(15)
-            ->retry(2, 500)
-            ->withUserAgent(config('app.name').'/1.0 (+'.config('app.url').')')
-            ->get($url)
-            ->body();
-
-        return $this->parse($xml);
+        return $this->parse($this->fetcher->get($url, config('news.max_feed_bytes'), retries: 2));
     }
 
     /**
