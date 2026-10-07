@@ -202,7 +202,9 @@ return [
         'supervisor-1' => [
             'connection' => 'redis',
             'queue' => ['debates', 'default'],
-            'balance' => 'auto',
+            // 'auto' balances the queues by workload and does not keep 'debates' first. With false, Horizon
+            // runs a single pool that listens to the queues in the order listed: debates before default.
+            'balance' => false,
             'autoScalingStrategy' => 'time',
             'maxProcesses' => 1,
             'maxTime' => 0,
@@ -213,6 +215,23 @@ return [
             'sleep' => 0,
             // Must stay below the redis connection's retry_after (REDIS_QUEUE_RETRY_AFTER).
             'timeout' => 120,
+            'nice' => 0,
+        ],
+
+        // News harvests run here, not on supervisor-1: a harvest of several articles takes minutes.
+        // Its timeout must stay above App\Jobs\FetchNewsSource::$timeout and below the news
+        // connection's retry_after (config/queue.php).
+        'supervisor-news' => [
+            'connection' => 'news',
+            'queue' => ['news'],
+            'balance' => 'simple',
+            'maxProcesses' => 1,
+            'maxTime' => 0,
+            'maxJobs' => 0,
+            'memory' => 128,
+            'tries' => 1,
+            'sleep' => 0,
+            'timeout' => 1560,
             'nice' => 0,
         ],
     ],

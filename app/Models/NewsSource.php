@@ -11,7 +11,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 /**
  * An RSS feed the news harvester reads every day.
  */
-#[Fillable(['name', 'feed_url', 'is_active', 'last_fetched_at', 'last_error'])]
+#[Fillable(['name', 'feed_url', 'category', 'is_active', 'last_fetched_at', 'last_error'])]
 class NewsSource extends Model
 {
     /** @use HasFactory<NewsSourceFactory> */

@@ -80,6 +80,6 @@ class DebateEvaluator implements Agent, HasStructuredOutput
      */
     public function timeout(): int
     {
-        return 60;
+        return config('debate.evaluator.timeout');
     }
 }

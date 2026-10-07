@@ -1,7 +1,7 @@
 <script setup>
 import { Link, router, usePage } from '@inertiajs/vue3';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { activeLookup, closeLookup, explain, friendlyError, openLookup, saveWord, selectedVocabulary, speak } from '../lib/lookup';
+import { activeLookup, closeLookup, explain, friendlyError, noteInput, openLookup, saveWord, selectedVocabulary, speak } from '../lib/lookup';
 
 const page = usePage();
 // Explanations depend on who asks and at which level.
@@ -19,6 +19,8 @@ let request = null;
 let timer = null;
 let frame = null;
 let mouseDown = false;
+// The element that had the focus when the panel opened; Escape returns the focus there.
+let returnFocusTo = null;
 
 // Mouse selections are final on release; on touch screens the handles keep moving after
 // the finger lifts, so wait for the selection to settle.
@@ -33,6 +35,7 @@ function check(delay) {
 }
 
 function onPointerDown(event) {
+    noteInput('pointer');
     mouseDown = event.pointerType === 'mouse';
     if (activeLookup.value && !panel.value?.contains(event.target)) closeLookup();
 }
@@ -50,7 +53,14 @@ function onSelectionChange() {
 }
 
 function onKeydown(event) {
-    if (event.key === 'Escape' && activeLookup.value) closeLookup();
+    noteInput('keyboard');
+    if (event.key !== 'Escape' || !activeLookup.value) return;
+
+    // Only a panel that held the focus gives it back: a mouse user's focus never moved.
+    const hadFocus = panel.value?.contains(document.activeElement);
+    const origin = returnFocusTo;
+    closeLookup();
+    if (hadFocus && origin?.isConnected) origin.focus();
 }
 
 // Below the selection by default: on phones the browser's own copy/share menu sits above it.
@@ -124,12 +134,17 @@ watch(activeLookup, async (lookup) => {
     if (!lookup) {
         request?.abort();
         status.value = 'idle';
+        returnFocusTo = null;
         return;
     }
 
+    // Record the origin before the panel can take the focus.
+    const focused = document.activeElement;
+    if (!panel.value?.contains(focused)) returnFocusTo = focused;
+
     await nextTick();
     place();
-    // Opened from the keyboard (a vocabulary chip): take focus so Tab reaches the panel's buttons.
+    // Opened from the keyboard: take focus so Tab reaches the panel's buttons.
     if (lookup.focus) panel.value?.focus();
     lookUp(lookup);
 });

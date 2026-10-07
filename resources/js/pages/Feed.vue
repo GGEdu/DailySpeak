@@ -2,6 +2,7 @@
 import { Head, router } from '@inertiajs/vue3';
 import { computed, ref, watch } from 'vue';
 import ArticleCard from '../components/ArticleCard.vue';
+import CategoryChips from '../components/CategoryChips.vue';
 import AppLayout from '../layouts/AppLayout.vue';
 import { dayLabel } from '../lib/time';
 
@@ -10,6 +11,10 @@ defineOptions({ layout: AppLayout });
 const props = defineProps({
     // The current search ('' shows the latest news).
     search: { type: String, required: true },
+    // Key of the category shown, or null for all of them (ignored while searching).
+    category: { type: String, default: null },
+    // [{ key, label }] of the categories that have stories.
+    categories: { type: Array, required: true },
     articles: { type: Array, required: true },
     // { [articleId]: debateId } — an empty PHP collection is serialised as [].
     activeDebates: { type: [Object, Array], required: true },
@@ -87,6 +92,8 @@ const days = computed(() => {
                 />
             </div>
         </form>
+
+        <CategoryChips v-if="!search && categories.length > 0" class="mt-5" :categories="categories" :active="category" />
 
         <p v-if="search" class="mt-4 text-sm text-ink-400" role="status">
             {{ articles.length === 0 ? 'No' : articles.length }} {{ articles.length === 1 ? 'story matches' : 'stories match' }} “{{ search }}”.

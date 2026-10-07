@@ -82,7 +82,13 @@ return [
                     'scheme' => env('REVERB_SCHEME', 'https'),
                     'useTLS' => env('REVERB_SCHEME', 'https') === 'https',
                 ],
-                'allowed_origins' => ['*'],
+                // Hosts the browser may connect from (Reverb matches the Origin's host, without the scheme),
+                // comma-separated, wildcards allowed: "app.example.com,*.example.com". Unset or blank means
+                // any origin, so local development keeps working.
+                'allowed_origins' => array_values(array_filter(array_map(
+                    'trim',
+                    explode(',', (string) env('REVERB_ALLOWED_ORIGINS', '*')),
+                ))) ?: ['*'],
                 'ping_interval' => env('REVERB_APP_PING_INTERVAL', 60),
                 'activity_timeout' => env('REVERB_APP_ACTIVITY_TIMEOUT', 30),
                 'max_connections' => env('REVERB_APP_MAX_CONNECTIONS'),

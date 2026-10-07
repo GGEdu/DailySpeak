@@ -2,15 +2,17 @@
 
 namespace Tests\Feature\Web;
 
+use App\Jobs\FetchNewsSource;
 use App\Models\NewsArticle;
 use App\Models\NewsSource;
 use App\Models\User;
-use Illuminate\Foundation\Console\QueuedCommand;
+use App\Services\News\HostResolver;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Sleep;
 use Inertia\Testing\AssertableInertia as Assert;
+use Tests\Support\FakeHostResolver;
 use Tests\TestCase;
 
 class NewsSourcesTest extends TestCase
@@ -57,11 +59,56 @@ class NewsSourcesTest extends TestCase
 
         $this->actingAs($this->admin)
             ->from('/admin/sources')
-            ->post('/admin/sources', ['name' => 'Example – World', 'feed_url' => 'https://feeds.example.test/rss.xml'])
+            ->post('/admin/sources', ['name' => 'Example – World', 'feed_url' => 'https://feeds.example.test/rss.xml', 'category' => 'world'])
             ->assertRedirect('/admin/sources')
             ->assertSessionHas('status', 'Example – World added. It will be read in the next daily run.');
 
-        $this->assertDatabaseHas('news_sources', ['feed_url' => 'https://feeds.example.test/rss.xml', 'is_active' => true]);
+        $this->assertDatabaseHas('news_sources', [
+            'feed_url' => 'https://feeds.example.test/rss.xml',
+            'category' => 'world',
+            'is_active' => true,
+        ]);
+    }
+
+    public function test_a_new_source_needs_a_category_from_the_list(): void
+    {
+        Http::fake(['feeds.example.test/*' => Http::response(file_get_contents(base_path('tests/Fixtures/news/feed.xml')))]);
+        $data = ['name' => 'Example', 'feed_url' => 'https://feeds.example.test/rss.xml'];
+
+        $this->actingAs($this->admin)->post('/admin/sources', $data)->assertSessionHasErrors('category');
+        $this->actingAs($this->admin)->post('/admin/sources', [...$data, 'category' => 'gardening'])->assertSessionHasErrors('category');
+
+        $this->assertDatabaseMissing('news_sources', ['feed_url' => 'https://feeds.example.test/rss.xml']);
+    }
+
+    public function test_the_sources_page_offers_the_categories_and_each_source_category(): void
+    {
+        $this->actingAs($this->admin)
+            ->get('/admin/sources')
+            ->assertInertia(fn (Assert $page) => $page
+                ->has('categories', 12)
+                ->where('categories.0', ['key' => 'world', 'label' => 'World'])
+                ->where('sources.0.category', 'world'));
+    }
+
+    public function test_admins_can_change_the_category_of_a_source(): void
+    {
+        $source = NewsSource::sole();
+
+        $this->actingAs($this->admin)->patch("/admin/sources/{$source->id}", ['category' => 'culture'])->assertRedirect();
+
+        $this->assertSame('culture', $source->fresh()->category);
+        $this->assertTrue($source->fresh()->is_active);
+    }
+
+    public function test_a_changed_category_must_be_on_the_list(): void
+    {
+        $source = NewsSource::sole();
+
+        $this->actingAs($this->admin)->patch("/admin/sources/{$source->id}", ['category' => 'gardening'])->assertSessionHasErrors('category');
+        $this->actingAs($this->admin)->patch("/admin/sources/{$source->id}", ['category' => ''])->assertSessionHasErrors('category');
+
+        $this->assertSame('world', $source->fresh()->category);
     }
 
     public function test_feeds_that_cannot_be_read_are_rejected(): void
@@ -90,6 +137,27 @@ class NewsSourcesTest extends TestCase
         $this->assertSame(1, NewsSource::count());
     }
 
+    public function test_feeds_on_private_or_reserved_addresses_are_refused_before_any_request(): void
+    {
+        $this->app->instance(HostResolver::class, new FakeHostResolver(['internal.example.test' => ['10.0.0.5']]));
+
+        $cases = [
+            'https://internal.example.test/rss.xml',
+            'https://127.0.0.1/rss.xml',
+            'https://169.254.169.254/latest/meta-data/',
+            'https://[::1]/rss.xml',
+        ];
+
+        foreach ($cases as $url) {
+            $this->actingAs($this->admin)
+                ->post('/admin/sources', ['name' => 'Internal', 'feed_url' => $url])
+                ->assertSessionHasErrors(['feed_url' => 'This URL points to a private or reserved network address.']);
+        }
+
+        Http::assertNothingSent();
+        $this->assertSame(1, NewsSource::count());
+    }
+
     public function test_admins_can_pause_fetch_and_delete_a_source(): void
     {
         Queue::fake();
@@ -100,7 +168,7 @@ class NewsSourcesTest extends TestCase
         $this->assertFalse($source->fresh()->is_active);
 
         $this->actingAs($this->admin)->post("/admin/sources/{$source->id}/fetch")->assertSessionHas('status');
-        Queue::assertPushed(QueuedCommand::class);
+        Queue::assertPushedOn('news', FetchNewsSource::class, fn (FetchNewsSource $job) => $job->sourceId === $source->id);
 
         $this->actingAs($this->admin)->delete("/admin/sources/{$source->id}")->assertRedirect();
         $this->assertModelMissing($source);

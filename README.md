@@ -43,7 +43,7 @@ Servicios expuestos por defecto:
 
 ## Ingesta de noticias (News Harvester)
 
-El comando `news:fetch` lee los feeds RSS configurados, descarga el texto de cada artículo nuevo, lo resume con el agente `NewsSummarizer` (Laravel AI SDK) y lo guarda en `news_articles`. Está programado a diario a las 03:00 hora de Madrid (`NEWS_FETCH_TIME` / `SCHEDULE_TIMEZONE`); las fechas se siguen guardando en UTC.
+El comando `news:fetch` lee los feeds RSS o Atom configurados, descarga el texto de cada artículo nuevo, lo resume con el agente `NewsSummarizer` (Laravel AI SDK) y lo guarda en `news_articles`. Está programado a diario a las 03:00 hora de Madrid (`NEWS_FETCH_TIME` / `SCHEDULE_TIMEZONE`); las fechas se siguen guardando en UTC.
 
 En Sail, el servicio `scheduler` ejecuta `php artisan schedule:work` de forma continua. En producción basta una entrada de cron que lance el scheduler cada minuto:
 
@@ -67,6 +67,7 @@ Configuración (`.env`):
 | `NEWS_AI_PROVIDER`            | `gemini`                                      | Proveedor del Laravel AI SDK (`gemini`, `openai`, …) |
 | `NEWS_AI_MODEL`               | modelo por defecto del proveedor              | p. ej. `gemini-2.5-flash` o `gpt-4o-mini` |
 | `NEWS_MAX_ARTICLES_PER_FEED`  | `5`                                           | Cada artículo nuevo es una llamada al LLM |
+| `NEWS_ALLOW_PRIVATE_HOSTS`    | `false`                                       | Permite feeds y artículos en IP privadas, loopback o reservadas. Solo en desarrollo local |
 
 Las fuentes RSS se guardan en la tabla `news_sources` y se gestionan desde **/admin/sources** (solo administradores): alta con validación (el feed se descarga y se comprueba antes de guardarlo), pausar/activar, eliminar y «Fetch now» para leer una fuente al momento por la cola. La migración crea BBC News – World como fuente inicial; úsala solo en desarrollo, ya que sus condiciones exigen licencia para uso comercial.
 
@@ -94,7 +95,7 @@ Flujo de un turno:
 4. El job transcribe el audio (STT) y emite `UserTurnTranscribed` con la transcripción, para que el usuario la vea mientras el tutor piensa. Después pide la réplica al agente `DebateTutor` con los últimos 30 mensajes del debate (LLM), la sintetiza a MP3 (TTS) y guarda ambos mensajes en `debate_messages`.
 5. Se emite `AIResponseGenerated` (`ShouldBroadcastNow`) con `transcript`, `audio_url` (URL firmada válida 60 min) y `user_message`. Si no se oye nada o el turno falla tras reintentar, se emite `DebateTurnFailed` con `reason` = `no_speech` | `processing_failed`.
 
-Las rutas de la API usan Sanctum (`auth:sanctum`): cookie de sesión para la web o token Bearer para otros clientes. Los turnos se procesan de uno en uno por debate y la subida está limitada a 20 por minuto.
+Las rutas de la API usan Sanctum (`auth:sanctum`) y exigen el correo verificado: cookie de sesión para la web o token Bearer para otros clientes. Los turnos se procesan de uno en uno por debate y la subida está limitada a 20 por minuto y 300 al día por usuario (`DEBATE_DAILY_TURNS`; los administradores, sin límite). Si la síntesis falla, el reintento solo repite el TTS: la réplica del tutor se guarda 10 minutos en caché y no se vuelve a pagar el LLM.
 
 | Variable                | Por defecto  | Descripción |
 |-------------------------|--------------|-------------|
@@ -103,6 +104,11 @@ Las rutas de la API usan Sanctum (`auth:sanctum`): cookie de sesión para la web
 | `DEBATE_LLM_OPTIONS`    | —            | JSON que se añade a cada petición del tutor, p. ej. `'{"reasoning_effort":"low"}'` (ver Latencia) |
 | `DEBATE_TTS_PROVIDER` / `DEBATE_TTS_MODEL` | `openai` / por defecto del proveedor | Síntesis de voz (p. ej. `eleven`) |
 | `DEBATE_TTS_VOICE`      | `alloy`      | Voz de OpenAI o id de voz de ElevenLabs |
+| `DEBATE_TTS_FALLBACK_PROVIDER` / `_MODEL` / `_VOICE` | — / ninguno / `alloy` | Voz de respaldo si la principal falla (otro modelo, con su propio id de voz). Sin modelo, no hay respaldo |
+| `DEBATE_STT_TIMEOUT`, `DEBATE_LLM_TIMEOUT`, `DEBATE_TTS_TIMEOUT`, `DEBATE_TTS_FALLBACK_TIMEOUT` | 30, 30, 30, 20 | Segundos por llamada. Su suma debe quedar por debajo de los 120 s del job de voz |
+| `DEBATE_EVAL_TIMEOUT`   | 60           | Informe de fluidez; por debajo de los 90 s de `EvaluateDebate` |
+| `DEBATE_DAILY_TURNS`    | 300          | Turnos de voz por usuario y día |
+| `REVERB_ALLOWED_ORIGINS` | `*`         | Hosts que pueden abrir el WebSocket, separados por comas (p. ej. `dailyspeak.example.com`) |
 | `ELEVENLABS_API_KEY` / `GROQ_API_KEY` | — | Solo si se usan esos proveedores |
 
 El system prompt del tutor está en `config/prompts.php` (`debate_tutor`).
@@ -205,6 +211,7 @@ No uses el driver `openai` para el texto: llama a la Responses API (`/responses`
 
 - **Tutor:** respondan en 1–2 s sin razonamiento. Un modelo que razona tarda 4–10 s por turno.
 - **Informe y resúmenes:** admitan `response_format: json_schema`.
+- **Voz de respaldo (opcional):** `DEBATE_TTS_FALLBACK_MODEL` con otro modelo de TTS de la pasarela y `DEBATE_TTS_FALLBACK_VOICE` con una voz suya.
 - **STT:** acepten `webm`/`ogg`/`m4a` (lo que graba el navegador) y no «corrijan» al alumno. El informe de fluidez se hace sobre la transcripción: un STT que normaliza la gramática borra justo los errores que hay que señalar.
 
 `DEBATE_EVAL_PROVIDER` / `DEBATE_EVAL_MODEL` dan al informe de fluidez un modelo propio; vacíos, usa el del tutor.
@@ -214,7 +221,10 @@ No uses el driver `openai` para el texto: llama a la Responses API (`/responses`
 - `APP_URL` debe ser la URL pública `https://…`: con ella se firman las URLs del audio del tutor.
 - `VITE_REVERB_HOST`, `VITE_REVERB_PORT=443` y `VITE_REVERB_SCHEME=https` se compilan en `npm run build`, y el proxy debe enrutar `/app` (WebSocket) a Reverb.
 - El micrófono (`getUserMedia`) solo funciona en HTTPS con un certificado en el que confíe el navegador.
-- `REDIS_QUEUE_RETRY_AFTER` mayor que el timeout del job de voz (120 s), o un turno lento se procesa dos veces.
+- `REDIS_QUEUE_RETRY_AFTER` mayor que el timeout del job de voz (120 s), o un turno lento se procesa dos veces. «Fetch now» usa su propia conexión (`news`, `NEWS_QUEUE_RETRY_AFTER`, 1800 s) y su supervisor de Horizon.
+- El correo tiene que salir de verdad (`MAIL_*`): sin él nadie puede verificar su cuenta ni recuperar la contraseña.
+- `REVERB_ALLOWED_ORIGINS` con el host público.
+- Las descargas de feeds y artículos rechazan direcciones privadas o reservadas (`NEWS_ALLOW_PRIVATE_HOSTS=true` solo para desarrollo).
 
 ## Administradores
 
@@ -223,7 +233,9 @@ No uses el driver `openai` para el texto: llama a la Responses API (`/responses`
 ./vendor/bin/sail artisan user:admin tu@email.com --revoke   # retirar
 ```
 
-Los administradores gestionan las fuentes de noticias, no tienen límite de turnos de voz (el resto: 20 por minuto) y pueden abrir Horizon fuera de local. El usuario de prueba del seeder es administrador.
+Los administradores gestionan las fuentes de noticias (cada una con su categoría, que se usa para filtrar el feed), no tienen límite de turnos de voz (el resto: 20 por minuto y 300 al día) y pueden abrir Horizon fuera de local. El usuario de prueba del seeder es administrador.
+
+Las cuentas nuevas reciben un enlace de verificación por correo y no pueden usar la app hasta abrirlo.
 
 ## Tests
 
@@ -231,6 +243,7 @@ Los tests usan la base de datos `testing` del contenedor de PostgreSQL (Sail la 
 
 ```bash
 ./vendor/bin/sail artisan test
+npm test                      # lógica de texto, audio y foco del frontend (node --test, sin dependencias)
 ```
 
 ## Modelo de datos
@@ -252,5 +265,6 @@ Los tests usan la base de datos `testing` del contenedor de PostgreSQL (Sail la 
 - [x] Análisis de fluidez post-sesión (`ai_feedback`, Flujo C de `Architecture.md`) y repaso de vocabulario
 - [x] Transcripción visible antes de la respuesta, medición y reducción de latencia
 - [x] Tutor adaptado al nivel, recuperación de contraseña y búsqueda de noticias
+- [x] Seleccionar una palabra para traducirla y guardarla; categorías en el feed; feeds Atom; verificación de correo
 - [ ] Respuesta del tutor en streaming (texto y voz por frases)
 - [ ] Pendientes legales: licencia de las fuentes de noticias y RGPD (ver Privacidad)

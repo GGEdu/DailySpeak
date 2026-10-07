@@ -58,7 +58,7 @@ class AdminTest extends TestCase
             'password' => 'a-strong-password',
             'password_confirmation' => 'a-strong-password',
             'is_admin' => true,
-        ])->assertRedirect('/feed');
+        ])->assertRedirect('/email/verify');
 
         $this->assertFalse(User::firstWhere('email', 'mallory@example.com')->is_admin);
     }

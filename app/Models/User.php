@@ -2,10 +2,10 @@
 
 namespace App\Models;
 
-// use Illuminate\Contracts\Auth\MustVerifyEmail;
 use App\Enums\DebateStatus;
 use App\Enums\EnglishLevel;
 use Database\Factories\UserFactory;
+use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -16,7 +16,7 @@ use Laravel\Sanctum\HasApiTokens;
 
 #[Fillable(['name', 'email', 'password', 'current_level'])]
 #[Hidden(['password', 'remember_token'])]
-class User extends Authenticatable
+class User extends Authenticatable implements MustVerifyEmail
 {
     /** @use HasFactory<UserFactory> */
     use HasApiTokens, HasFactory, Notifiable;
@@ -65,12 +65,17 @@ class User extends Authenticatable
 
     /**
      * Start a debate about the article, or resume the active one the user already has.
+     *
+     * The partial unique index on debates rejects a second active debate for the same article, so when
+     * a double submit loses the race, createOrFirst() returns the debate that won it.
      */
     public function startDebate(NewsArticle $article): Debate
     {
-        return $this->debates()->firstOrCreate([
+        $active = [
             'news_article_id' => $article->id,
             'status' => DebateStatus::Active,
-        ]);
+        ];
+
+        return $this->debates()->where($active)->first() ?? $this->debates()->createOrFirst($active);
     }
 }

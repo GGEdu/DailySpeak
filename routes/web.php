@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Admin\NewsSourceController;
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
+use App\Http\Controllers\Auth\EmailVerificationController;
 use App\Http\Controllers\Auth\NewPasswordController;
 use App\Http\Controllers\Auth\PasswordResetLinkController;
 use App\Http\Controllers\Auth\RegisteredUserController;
@@ -37,6 +38,18 @@ Route::middleware('guest')->group(function () {
 Route::middleware('auth')->group(function () {
     Route::post('/logout', [AuthenticatedSessionController::class, 'destroy'])->name('logout');
 
+    Route::get('/email/verify', [EmailVerificationController::class, 'notice'])->name('verification.notice');
+    Route::get('/email/verify/{id}/{hash}', [EmailVerificationController::class, 'verify'])
+        ->middleware(['signed', 'throttle:6,1'])
+        ->name('verification.verify');
+    Route::post('/email/verification-notification', [EmailVerificationController::class, 'resend'])
+        ->middleware('throttle:6,1')
+        ->name('verification.send');
+});
+
+// Everything else needs a confirmed address: open sign-up must not mean open access to the AI budget.
+Route::middleware(['auth', 'verified'])->group(function () {
+
     Route::get('/feed', FeedController::class)->name('feed');
 
     Route::post('/news-articles/{newsArticle}/debate', [DebateSessionController::class, 'store'])
@@ -64,7 +77,7 @@ Route::middleware('auth')->group(function () {
     Route::put('/settings', [SettingsController::class, 'update'])->name('settings.update');
 });
 
-Route::middleware(['auth', 'can:admin'])->prefix('admin')->name('admin.')->group(function () {
+Route::middleware(['auth', 'verified', 'can:admin'])->prefix('admin')->name('admin.')->group(function () {
     Route::get('/sources', [NewsSourceController::class, 'index'])->name('sources.index');
     Route::post('/sources', [NewsSourceController::class, 'store'])->name('sources.store');
     Route::patch('/sources/{source}', [NewsSourceController::class, 'update'])->name('sources.update');

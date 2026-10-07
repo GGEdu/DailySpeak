@@ -18,6 +18,9 @@ const paragraphs = computed(() => props.article.summary.split(/\n\s*\n/).filter(
     <article class="group rounded-2xl border border-white/8 bg-ink-900/60 p-6 transition hover:border-white/15 sm:p-7">
         <div class="flex items-center gap-2 text-xs text-ink-400">
             <a :href="article.source_url" target="_blank" rel="noopener" class="font-medium text-ink-300 hover:text-ink-100">{{ article.source }}</a>
+            <span v-if="article.category_label" class="rounded-full border border-white/10 px-2 py-0.5 text-[11px] font-medium text-ink-400">{{
+                article.category_label
+            }}</span>
             <span aria-hidden="true">·</span>
             <time :datetime="article.published_at">{{ timeAgo(article.published_at) }}</time>
         </div>

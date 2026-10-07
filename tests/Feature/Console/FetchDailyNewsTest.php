@@ -119,6 +119,7 @@ class FetchDailyNewsTest extends TestCase
 
         $this->assertDatabaseMissing('news_articles', ['source_url' => self::TRANSPORT_URL]);
         $this->assertDatabaseHas('news_articles', ['source_url' => self::GENES_URL]);
+        $this->assertNull($this->source->fresh()->last_error);
     }
 
     public function test_incomplete_model_output_is_not_stored(): void
@@ -241,6 +242,81 @@ class FetchDailyNewsTest extends TestCase
         $this->assertNull($this->source->fresh()->last_fetched_at);
     }
 
+    public function test_text_less_items_do_not_use_up_the_article_limit(): void
+    {
+        $this->fakeFeed([
+            'https://www.bbc.co.uk/news/videos/clip1',
+            'https://www.bbc.co.uk/news/videos/clip2',
+            'https://www.bbc.co.uk/news/articles/first',
+            'https://www.bbc.co.uk/news/articles/second',
+        ]);
+        $this->fakeSummaries();
+
+        $this->artisan('news:fetch', ['--limit' => 2])
+            ->expectsOutputToContain('Saved 2, skipped 2, failed 0.')
+            ->assertSuccessful();
+
+        $this->assertDatabaseHas('news_articles', ['source_url' => 'https://www.bbc.co.uk/news/articles/first']);
+        $this->assertDatabaseHas('news_articles', ['source_url' => 'https://www.bbc.co.uk/news/articles/second']);
+    }
+
+    public function test_it_gives_up_after_three_downloads_per_wanted_article(): void
+    {
+        $videos = array_map(fn (int $i) => "https://www.bbc.co.uk/news/videos/clip{$i}", range(1, 10));
+        $this->fakeFeed([...$videos, 'https://www.bbc.co.uk/news/articles/late']);
+        $this->fakeSummaries();
+
+        $this->artisan('news:fetch', ['--limit' => 1])
+            ->expectsOutputToContain('Saved 0, skipped 3, failed 0.')
+            ->assertSuccessful();
+
+        $this->assertCount(3, $this->recordedRequestsTo('/news/videos/'));
+        $this->assertSame(0, NewsArticle::count());
+    }
+
+    public function test_items_without_text_are_not_downloaded_again_for_a_week(): void
+    {
+        $this->fakeFeed(['https://www.bbc.co.uk/news/videos/clip1', 'https://www.bbc.co.uk/news/articles/first']);
+        $this->fakeSummaries();
+
+        $this->artisan('news:fetch', ['--limit' => 1])->assertSuccessful();
+        $this->artisan('news:fetch', ['--limit' => 1])->assertSuccessful();
+        $this->assertCount(1, $this->recordedRequestsTo('/news/videos/'));
+
+        $this->travel(8)->days();
+        $this->artisan('news:fetch', ['--limit' => 1])->assertSuccessful();
+        $this->assertCount(2, $this->recordedRequestsTo('/news/videos/'));
+    }
+
+    public function test_download_failures_are_retried_the_next_day(): void
+    {
+        $this->fakeFeed(
+            ['https://www.bbc.co.uk/news/articles/first'],
+            ['www.bbc.co.uk/news/articles/first' => Http::sequence()
+                ->push('Unavailable', 503)
+                ->push(file_get_contents(base_path('tests/Fixtures/news/article.html')))],
+        );
+        $this->fakeSummaries();
+
+        $this->artisan('news:fetch')->expectsOutputToContain('Saved 0, skipped 1, failed 0.')->assertSuccessful();
+        $this->artisan('news:fetch')->expectsOutputToContain('Saved 1, skipped 0, failed 0.')->assertSuccessful();
+
+        $this->assertDatabaseHas('news_articles', ['source_url' => 'https://www.bbc.co.uk/news/articles/first']);
+    }
+
+    public function test_the_source_records_an_error_when_no_article_could_be_summarised(): void
+    {
+        $this->fakeFeed(['https://www.bbc.co.uk/news/articles/first', 'https://www.bbc.co.uk/news/articles/second']);
+        NewsSummarizer::fake(fn () => throw new RuntimeException('Rate limit exceeded'))->preventStrayPrompts();
+
+        $this->artisan('news:fetch')->assertFailed();
+
+        $error = $this->source->fresh()->last_error;
+        $this->assertStringContainsString('2 article(s) could not be summarised', $error);
+        $this->assertStringContainsString('Rate limit exceeded', $error);
+        $this->assertNotNull($this->source->fresh()->last_fetched_at);
+    }
+
     public function test_it_is_scheduled_daily_at_three_am_madrid_time(): void
     {
         $event = collect(app(Schedule::class)->events())
@@ -275,5 +351,37 @@ class FetchDailyNewsTest extends TestCase
             'summary' => self::SUMMARY,
             'vocabulary' => self::VOCABULARY,
         ])->preventStrayPrompts();
+    }
+
+    /**
+     * Serve an RSS feed with one item per link, in the given order.
+     *
+     * @param  list<string>  $links
+     * @param  array<string, mixed>  $overrides
+     */
+    private function fakeFeed(array $links, array $overrides = []): void
+    {
+        $items = collect($links)
+            ->map(fn (string $link, int $i) => "<item><title><![CDATA[Story {$i}]]></title><link>{$link}</link>"
+                .'<pubDate>Wed, 07 Oct 2026 12:16:58 GMT</pubDate></item>')
+            ->implode('');
+
+        Http::fake($overrides + [
+            'feeds.example.test/*' => Http::response("<?xml version=\"1.0\"?><rss version=\"2.0\"><channel><title>Test</title>{$items}</channel></rss>"),
+            'www.bbc.co.uk/news/articles/*' => Http::response(file_get_contents(base_path('tests/Fixtures/news/article.html'))),
+            'www.bbc.co.uk/news/videos/*' => Http::response('<html><body><main><video src="clip.mp4"></video></main></body></html>'),
+        ]);
+    }
+
+    /**
+     * @return list<string> URLs of the recorded requests that contain the given fragment.
+     */
+    private function recordedRequestsTo(string $fragment): array
+    {
+        return collect(Http::recorded())
+            ->map(fn (array $pair) => $pair[0]->url())
+            ->filter(fn (string $url) => str_contains($url, $fragment))
+            ->values()
+            ->all();
     }
 }

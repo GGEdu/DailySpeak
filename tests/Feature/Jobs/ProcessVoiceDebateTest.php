@@ -209,10 +209,10 @@ class ProcessVoiceDebateTest extends TestCase
     public function test_it_uses_the_configured_models_and_voice(): void
     {
         config([
-            'debate.stt' => ['provider' => 'groq', 'model' => 'whisper-large-v3-turbo', 'language' => 'en'],
+            'debate.stt' => ['provider' => 'groq', 'model' => 'whisper-large-v3-turbo', 'language' => 'en', 'timeout' => 30],
             'debate.llm.provider' => 'openai',
             'debate.llm.model' => 'gpt-4o-mini',
-            'debate.tts' => ['provider' => 'eleven', 'model' => 'eleven_flash_v2_5', 'voice' => 'voice-123'],
+            'debate.tts' => ['provider' => 'eleven', 'model' => 'eleven_flash_v2_5', 'voice' => 'voice-123', 'timeout' => 30],
         ]);
         Transcription::fake([self::USER_SAYS]);
         DebateTutor::fake([self::TUTOR_SAYS]);
@@ -306,5 +306,110 @@ class ProcessVoiceDebateTest extends TestCase
         $this->assertSame(1, $this->debate->messages()->where('role', MessageRole::Assistant)->count());
         Exceptions::assertReported(BroadcastException::class);
         Event::assertNotDispatched(DebateTurnFailed::class);
+    }
+
+    public function test_a_retry_after_a_failed_synthesis_does_not_ask_the_tutor_again(): void
+    {
+        Transcription::fake([self::USER_SAYS]);
+        DebateTutor::fake([self::TUTOR_SAYS]);
+        Audio::fake(fn () => throw new RuntimeException('Speech service down'));
+
+        try {
+            ProcessVoiceDebate::dispatch($this->debate, self::RECORDING);
+            $this->fail('The first attempt should have failed.');
+        } catch (RuntimeException) {
+            //
+        }
+
+        // The retry reuses the transcript and the reply text, and only repeats the speech synthesis.
+        Audio::fake([base64_encode('mp3')]);
+        ProcessVoiceDebate::dispatch($this->debate, self::RECORDING);
+
+        DebateTutor::assertPromptedTimes(1);
+        Audio::assertGenerated(fn (AudioPrompt $prompt) => $prompt->text === self::TUTOR_SAYS);
+        $this->assertSame(1, $this->debate->messages()->where('role', MessageRole::Assistant)->count());
+        $this->assertSame(self::TUTOR_SAYS, $this->debate->messages()->where('role', MessageRole::Assistant)->sole()->transcript);
+    }
+
+    public function test_a_turn_queued_before_the_debate_was_finished_is_dropped_without_a_reply(): void
+    {
+        // The debate was closed, and its report written, while this turn was waiting in the queue.
+        $this->debate->finish();
+        Transcription::fake([self::USER_SAYS]);
+        DebateTutor::fake([self::TUTOR_SAYS]);
+        Audio::fake([base64_encode('mp3')]);
+
+        ProcessVoiceDebate::dispatch($this->debate, self::RECORDING);
+
+        Transcription::assertNothingGenerated();
+        DebateTutor::assertNeverPrompted();
+        Audio::assertNothingGenerated();
+        $this->assertSame(0, $this->debate->messages()->count());
+        Event::assertNotDispatched(UserTurnTranscribed::class);
+        Event::assertNotDispatched(AIResponseGenerated::class);
+        Event::assertNotDispatched(DebateTurnFailed::class);
+    }
+
+    public function test_each_provider_call_uses_its_configured_timeout(): void
+    {
+        config(['debate.stt.timeout' => 45, 'debate.llm.timeout' => 50, 'debate.tts.timeout' => 40]);
+        Transcription::fake([self::USER_SAYS]);
+        DebateTutor::fake([self::TUTOR_SAYS]);
+        Audio::fake([base64_encode('mp3')]);
+
+        ProcessVoiceDebate::dispatch($this->debate, self::RECORDING);
+
+        Transcription::assertGenerated(fn (TranscriptionPrompt $prompt) => $prompt->timeout === 45);
+        DebateTutor::assertPrompted(fn (AgentPrompt $prompt) => $prompt->agent->timeout() === 50);
+        Audio::assertGenerated(fn (AudioPrompt $prompt) => $prompt->timeout === 40);
+    }
+
+    public function test_the_default_timeouts_fit_within_the_voice_turn_budget(): void
+    {
+        // The job is killed after its $timeout: STT, tutor and TTS run one after another inside it.
+        $this->assertSame(30, config('debate.stt.timeout'));
+        $this->assertSame(30, config('debate.llm.timeout'));
+        $this->assertSame(30, config('debate.tts.timeout'));
+
+        $job = new ProcessVoiceDebate($this->debate, self::RECORDING);
+
+        // The backup voice only runs after the main one failed, inside the same turn.
+        $this->assertLessThanOrEqual($job->timeout, config('debate.stt.timeout') + config('debate.llm.timeout')
+            + config('debate.tts.timeout') + config('debate.tts.fallback.timeout'));
+    }
+
+    public function test_a_backup_voice_speaks_when_the_main_one_fails(): void
+    {
+        config(['debate.tts.fallback' => ['provider' => 'openai', 'model' => 'tts-backup', 'voice' => 'eve', 'timeout' => 20]]);
+        Transcription::fake([self::USER_SAYS]);
+        DebateTutor::fake([self::TUTOR_SAYS])->preventStrayPrompts();
+        Audio::fake(fn (AudioPrompt $prompt) => $prompt->voice === 'eve'
+            ? base64_encode('backup-mp3')
+            : throw new RuntimeException('Main voice down'));
+
+        ProcessVoiceDebate::dispatch($this->debate, self::RECORDING);
+
+        $reply = $this->debate->messages()->where('role', MessageRole::Assistant)->sole();
+        $this->assertSame(self::TUTOR_SAYS, $reply->transcript);
+        $this->assertSame('backup-mp3', Storage::disk('local')->get($reply->audio_path));
+        Audio::assertGenerated(fn (AudioPrompt $prompt) => $prompt->model === 'tts-backup' && $prompt->voice === 'eve' && $prompt->timeout === 20);
+        Event::assertDispatched(AIResponseGenerated::class);
+    }
+
+    public function test_without_a_backup_voice_a_failed_synthesis_fails_the_turn_as_before(): void
+    {
+        config(['debate.tts.fallback.model' => null]);
+        Transcription::fake([self::USER_SAYS]);
+        DebateTutor::fake([self::TUTOR_SAYS]);
+        Audio::fake(fn () => throw new RuntimeException('Main voice down'));
+
+        try {
+            ProcessVoiceDebate::dispatch($this->debate, self::RECORDING);
+        } catch (RuntimeException) {
+        }
+
+        Audio::assertGenerated(fn (AudioPrompt $prompt) => $prompt->voice === config('debate.tts.voice'));
+        Audio::assertNotGenerated(fn (AudioPrompt $prompt) => $prompt->voice !== config('debate.tts.voice'));
+        $this->assertSame(0, $this->debate->messages()->where('role', MessageRole::Assistant)->count());
     }
 }

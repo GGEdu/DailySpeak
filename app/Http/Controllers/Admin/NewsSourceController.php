@@ -4,10 +4,11 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreNewsSourceRequest;
+use App\Jobs\FetchNewsSource;
 use App\Models\NewsSource;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Artisan;
+use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -27,11 +28,15 @@ class NewsSourceController extends Controller
                     'id' => $source->id,
                     'name' => $source->name,
                     'feed_url' => $source->feed_url,
+                    'category' => $source->category,
                     'is_active' => $source->is_active,
                     'articles_count' => $source->articles_count,
                     'last_fetched_at' => $source->last_fetched_at,
                     'last_error' => $source->last_error,
                 ]),
+            'categories' => collect(config('news.categories'))
+                ->map(fn (string $label, string $key) => ['key' => $key, 'label' => $label])
+                ->values(),
         ]);
     }
 
@@ -48,7 +53,8 @@ class NewsSourceController extends Controller
     public function update(Request $request, NewsSource $source): RedirectResponse
     {
         $source->update($request->validate([
-            'is_active' => ['required', 'boolean'],
+            'is_active' => ['sometimes', 'required', 'boolean'],
+            'category' => ['sometimes', 'required', Rule::in(array_keys(config('news.categories')))],
         ]));
 
         return back();
@@ -65,12 +71,12 @@ class NewsSourceController extends Controller
     }
 
     /**
-     * Harvest a single source now, on the queue.
+     * Harvest a single source now, on its own queue (see FetchNewsSource for why it is not `news:fetch`).
      */
     public function fetch(NewsSource $source): RedirectResponse
     {
-        Artisan::queue('news:fetch', ['--source' => [$source->id]]);
+        FetchNewsSource::dispatch($source->id);
 
-        return back()->with('status', "Fetching {$source->name}… new articles will appear in the feed in a minute.");
+        return back()->with('status', "Fetching {$source->name}… new articles will appear in the feed as they are summarised.");
     }
 }

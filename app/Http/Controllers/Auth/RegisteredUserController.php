@@ -45,6 +45,7 @@ class RegisteredUserController extends Controller
         Auth::login($user);
         $request->session()->regenerate();
 
-        return to_route('feed');
+        // Nothing that costs AI calls is available until the address is confirmed.
+        return to_route('verification.notice');
     }
 }
