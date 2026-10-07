@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?><rss xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:atom="http://www.w3.org/2005/Atom" version="2.0" xmlns:media="http://search.yahoo.com/mrss/">
+    <channel>
+        <title><![CDATA[BBC News]]></title>
+        <description><![CDATA[BBC News - World]]></description>
+        <link>https://www.bbc.co.uk/news/world</link>
+        <language><![CDATA[en-gb]]></language>
+        <item>
+            <title><![CDATA[City council approves sweeping overhaul of public transport]]></title>
+            <description><![CDATA[Critics say the plan is <b>overly ambitious</b> and underfunded.]]></description>
+            <link>https://www.bbc.co.uk/news/articles/transport1?at_medium=RSS&amp;at_campaign=rss</link>
+            <guid isPermaLink="false">https://www.bbc.co.uk/news/articles/transport1#0</guid>
+            <pubDate>Wed, 07 Oct 2026 12:16:58 GMT</pubDate>
+            <media:thumbnail width="240" height="135" url="https://ichef.bbci.co.uk/example.jpg"/>
+        </item>
+        <item>
+            <title><![CDATA[Scientists debate the ethics of gene editing in crops]]></title>
+            <description><![CDATA[A new study has reignited a long-running controversy.]]></description>
+            <link>https://www.bbc.co.uk/news/articles/genes2?at_medium=RSS&amp;at_campaign=rss&amp;page=2</link>
+            <guid isPermaLink="false">https://www.bbc.co.uk/news/articles/genes2#0</guid>
+            <pubDate>Wed, 07 Oct 2026 12:12:36 +0200</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[Watch: Volcano erupts in remote archipelago]]></title>
+            <description><![CDATA[Footage shows lava flowing towards the sea.]]></description>
+            <link>https://www.bbc.co.uk/news/videos/volcano3?at_medium=RSS&amp;at_campaign=rss</link>
+            <guid isPermaLink="false">https://www.bbc.co.uk/news/videos/volcano3#0</guid>
+            <pubDate>not a date</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[City council approves sweeping overhaul of public transport]]></title>
+            <description><![CDATA[Duplicate entry pointing at the same article.]]></description>
+            <link>https://www.bbc.co.uk/news/articles/transport1?at_medium=RSS&amp;at_campaign=other</link>
+            <pubDate>Wed, 07 Oct 2026 12:16:58 GMT</pubDate>
+        </item>
+        <item>
+            <title><![CDATA[]]></title>
+            <link>https://www.bbc.co.uk/news/articles/untitled</link>
+        </item>
+    </channel>
+</rss>
