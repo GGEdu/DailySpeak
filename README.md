@@ -124,6 +124,7 @@ Inertia + Vue 3 con un diseño oscuro (`resources/js`):
 |-------------------|-----------------------|----------|
 | `/`               | `pages/Welcome.vue`   | Landing para invitados (los usuarios autenticados van al feed) |
 | `/login`, `/register` | `pages/auth/*`    | Acceso y registro (con el nivel B1/B2/C1) |
+| `/forgot-password`, `/reset-password/{token}` | `pages/auth/*` | Recuperar la contraseña con un enlace por email (válido 60 min; en local llega a Mailpit, http://localhost:8025) |
 | `/feed`           | `pages/Feed.vue`      | Noticias del día agrupadas por fecha: título, resumen, vocabulario clave y «Debate this» / «Continue debate» |
 | `/debates/{id}`   | `pages/Debate.vue`    | Chat de voz con el tutor; «Finish debate» genera el informe de fluidez (muletillas, errores y vocabulario recomendado) |
 | `/vocabulary`     | `pages/Vocabulary.vue` | Palabras recomendadas en los informes, con repaso espaciado (Leitner: 1, 2, 4, 8 y 16 días) |

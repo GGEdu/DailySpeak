@@ -20,10 +20,15 @@ const submit = () => form.post('/login', { onFinish: () => form.reset('password'
             <TextField v-model="form.email" label="Email" type="email" autocomplete="email" required autofocus :error="form.errors.email" />
             <TextField v-model="form.password" label="Password" type="password" autocomplete="current-password" required :error="form.errors.password" />
 
-            <label class="flex items-center gap-2 text-sm text-ink-400">
-                <input v-model="form.remember" type="checkbox" class="size-4 rounded border-white/20 bg-ink-950 accent-speaking" />
-                Remember me
-            </label>
+            <div class="flex items-center justify-between gap-4 text-sm">
+                <label class="flex items-center gap-2 text-ink-400">
+                    <input v-model="form.remember" type="checkbox" class="size-4 rounded border-white/20 bg-ink-950 accent-speaking" />
+                    Remember me
+                </label>
+                <Link href="/forgot-password" class="text-ink-400 underline-offset-4 transition hover:text-ink-200 hover:underline">
+                    Forgot your password?
+                </Link>
+            </div>
 
             <button
                 type="submit"

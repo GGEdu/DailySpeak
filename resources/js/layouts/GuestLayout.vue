@@ -1,11 +1,14 @@
 <script setup>
-import { Link } from '@inertiajs/vue3';
+import { Link, usePage } from '@inertiajs/vue3';
+import { computed } from 'vue';
 import AppLogo from '../components/AppLogo.vue';
 
 defineProps({
     title: { type: String, required: true },
     subtitle: { type: String, default: null },
 });
+
+const status = computed(() => usePage().props.flash?.status);
 </script>
 
 <template>
@@ -23,6 +26,14 @@ defineProps({
             <div class="rounded-2xl border border-white/8 bg-ink-900/80 p-7 shadow-2xl shadow-black/40 backdrop-blur">
                 <h1 class="text-xl font-semibold tracking-tight text-ink-100">{{ title }}</h1>
                 <p v-if="subtitle" class="mt-1.5 text-sm text-ink-400">{{ subtitle }}</p>
+
+                <p
+                    v-if="status"
+                    role="status"
+                    class="mt-5 rounded-lg border border-emerald-400/20 bg-emerald-400/10 px-3 py-2.5 text-sm text-emerald-200"
+                >
+                    {{ status }}
+                </p>
 
                 <div class="mt-7">
                     <slot />
