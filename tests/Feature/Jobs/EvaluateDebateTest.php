@@ -155,6 +155,22 @@ class EvaluateDebateTest extends TestCase
         );
     }
 
+    public function test_the_evaluator_uses_the_configured_timeout(): void
+    {
+        config(['debate.evaluator.timeout' => 75]);
+        DebateEvaluator::fake([self::REPORT]);
+
+        EvaluateDebate::dispatch($this->debate);
+
+        DebateEvaluator::assertPrompted(fn (AgentPrompt $prompt) => $prompt->agent->timeout() === 75);
+    }
+
+    public function test_the_default_evaluator_timeout_fits_within_the_evaluation_job_budget(): void
+    {
+        $this->assertSame(60, config('debate.evaluator.timeout'));
+        $this->assertLessThanOrEqual((new EvaluateDebate($this->debate))->timeout, config('debate.evaluator.timeout'));
+    }
+
     public function test_the_report_is_broadcast_on_the_debate_channel(): void
     {
         $this->debate->update(['ai_feedback' => self::REPORT]);

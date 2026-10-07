@@ -57,18 +57,25 @@ return [
     | provider's default. Examples: STT "groq" + "whisper-large-v3-turbo",
     | TTS "eleven" with an ElevenLabs voice id.
     |
+    | Timeouts are in seconds, per request. Budget: a voice turn runs STT, then the
+    | tutor, then TTS inside ProcessVoiceDebate, whose $timeout is 120, so the three
+    | timeouts must add up to less than that. The fluency report runs DebateEvaluator
+    | inside EvaluateDebate, whose $timeout is 90, so its timeout must stay below that.
+    | The defaults add up to 90 for a voice turn and 60 for the report.
+    |
     */
 
     'stt' => [
         'provider' => env('DEBATE_STT_PROVIDER', 'openai'),
         'model' => env('DEBATE_STT_MODEL', 'whisper-1') ?: null,
         'language' => 'en',
+        'timeout' => (int) env('DEBATE_STT_TIMEOUT', 30),
     ],
 
     'llm' => [
         'provider' => env('DEBATE_LLM_PROVIDER', 'gemini'),
         'model' => env('DEBATE_LLM_MODEL') ?: null,
-        'timeout' => 30,
+        'timeout' => (int) env('DEBATE_LLM_TIMEOUT', 30),
         // Provider-specific request options (JSON) merged into every tutor request. A lower
         // reasoning effort answers several times faster: {"reasoning_effort":"low"} for NVIDIA,
         // Groq and other OpenAI-compatible APIs, {"reasoning":{"effort":"low"}} for OpenAI.
@@ -83,12 +90,14 @@ return [
     'evaluator' => [
         'provider' => env('DEBATE_EVAL_PROVIDER') ?: null,
         'model' => env('DEBATE_EVAL_MODEL') ?: null,
+        'timeout' => (int) env('DEBATE_EVAL_TIMEOUT', 60),
     ],
 
     'tts' => [
         'provider' => env('DEBATE_TTS_PROVIDER', 'openai'),
         'model' => env('DEBATE_TTS_MODEL') ?: null,
         'voice' => env('DEBATE_TTS_VOICE', 'alloy'),
+        'timeout' => (int) env('DEBATE_TTS_TIMEOUT', 30),
     ],
 
 ];

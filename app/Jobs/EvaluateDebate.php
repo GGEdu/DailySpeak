@@ -36,6 +36,9 @@ class EvaluateDebate implements ShouldQueue
         'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me', 'my', 'your', 'our', 'their', 'this', 'that', 'these', 'those',
     ];
 
+    /**
+     * Seconds the job can run. The evaluator's timeout (config/debate.php, evaluator.timeout) must stay below this.
+     */
     public int $timeout = 90;
 
     public int $maxExceptions = 2;

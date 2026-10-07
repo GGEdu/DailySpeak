@@ -30,7 +30,8 @@ class ProcessVoiceDebate implements ShouldQueue
     use Queueable;
 
     /**
-     * The number of seconds the job can run (STT + LLM + TTS round trips).
+     * The number of seconds the job can run (STT + LLM + TTS round trips). The per-request timeouts in
+     * config/debate.php (stt, llm, tts) must add up to less than this, or the job is killed mid-turn.
      */
     public int $timeout = 120;
 
@@ -149,6 +150,7 @@ class ProcessVoiceDebate implements ShouldQueue
 
         $transcript = trim(Transcription::fromStorage($this->audioPath, config('debate.audio.disk'))
             ->language(config('debate.stt.language'))
+            ->timeout(config('debate.stt.timeout'))
             ->generate(config('debate.stt.provider'), config('debate.stt.model'))
             ->text);
 
@@ -184,6 +186,7 @@ class ProcessVoiceDebate implements ShouldQueue
     {
         $path = Audio::of($text)
             ->voice(config('debate.tts.voice'))
+            ->timeout(config('debate.tts.timeout'))
             ->generate(config('debate.tts.provider'), config('debate.tts.model'))
             ->storeAs("debates/{$this->debate->id}/replies", Str::uuid().'.mp3', config('debate.audio.disk'));
 
