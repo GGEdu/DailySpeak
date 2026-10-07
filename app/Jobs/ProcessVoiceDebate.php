@@ -14,6 +14,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Support\Benchmark;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Laravel\Ai\Audio;
@@ -30,7 +31,13 @@ class ProcessVoiceDebate implements ShouldQueue
     use Queueable;
 
     /**
-     * The number of seconds the job can run (STT + LLM + TTS round trips).
+     * How long a tutor reply is kept so a retry can reuse it. Longer than retryUntil(), so every retry sees it.
+     */
+    private const REPLY_TTL_MINUTES = 10;
+
+    /**
+     * The number of seconds the job can run (STT + LLM + TTS round trips). The per-request timeouts in
+     * config/debate.php (stt, llm, tts) must add up to less than this, or the job is killed mid-turn.
      */
     public int $timeout = 120;
 
@@ -86,6 +93,12 @@ class ProcessVoiceDebate implements ShouldQueue
      */
     public function handle(): void
     {
+        // The debate may have been finished while this turn waited in the queue. Its report is already
+        // written, so the turn is dropped: no message is added and no reply is sent.
+        if (! $this->debate->fresh()?->isActive()) {
+            return;
+        }
+
         $startedAt = microtime(true);
 
         [$turn, $sttMs] = Benchmark::value(fn () => $this->userTurn());
@@ -107,6 +120,8 @@ class ProcessVoiceDebate implements ShouldQueue
             'transcript' => $reply,
             'audio_path' => $audioPath,
         ]);
+
+        Cache::forget($this->replyCacheKey($turn));
 
         // The reply is already stored, so a broadcasting outage must not trigger a retry
         // (and a second, different answer). Clients can reload the history instead.
@@ -149,6 +164,7 @@ class ProcessVoiceDebate implements ShouldQueue
 
         $transcript = trim(Transcription::fromStorage($this->audioPath, config('debate.audio.disk'))
             ->language(config('debate.stt.language'))
+            ->timeout(config('debate.stt.timeout'))
             ->generate(config('debate.stt.provider'), config('debate.stt.model'))
             ->text);
 
@@ -164,17 +180,31 @@ class ProcessVoiceDebate implements ShouldQueue
     }
 
     /**
-     * Ask the tutor for its reply to the given turn.
+     * Ask the tutor for its reply to the given turn. A retry after a failed synthesis reuses the reply
+     * already produced, so it costs no second LLM call and the user gets the answer that was spoken.
      */
     private function reply(DebateMessage $turn): string
     {
+        $cached = Cache::get($this->replyCacheKey($turn));
+
+        if (is_string($cached) && $cached !== '') {
+            return $cached;
+        }
+
         $reply = trim((new DebateTutor($this->debate, $turn))->prompt($turn->transcript)->text);
 
         if ($reply === '') {
             throw new UnexpectedValueException('The tutor returned an empty reply.');
         }
 
+        Cache::put($this->replyCacheKey($turn), $reply, now()->addMinutes(self::REPLY_TTL_MINUTES));
+
         return $reply;
+    }
+
+    private function replyCacheKey(DebateMessage $turn): string
+    {
+        return 'debate-reply:'.$turn->getKey();
     }
 
     /**
@@ -184,6 +214,7 @@ class ProcessVoiceDebate implements ShouldQueue
     {
         $path = Audio::of($text)
             ->voice(config('debate.tts.voice'))
+            ->timeout(config('debate.tts.timeout'))
             ->generate(config('debate.tts.provider'), config('debate.tts.model'))
             ->storeAs("debates/{$this->debate->id}/replies", Str::uuid().'.mp3', config('debate.audio.disk'));
 

@@ -12,9 +12,11 @@ use App\Models\DebateMessage;
 use App\Models\NewsArticle;
 use App\Models\UserVocabulary;
 use Illuminate\Broadcasting\PrivateChannel;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Queue;
 use Laravel\Ai\Prompts\AgentPrompt;
 use RuntimeException;
 use Tests\TestCase;
@@ -144,6 +146,85 @@ class EvaluateDebateTest extends TestCase
         Event::assertDispatched(DebateEvaluationFailed::class, fn ($event) => $event->debate->is($this->debate));
     }
 
+    public function test_a_debate_is_queued_for_evaluation_only_once(): void
+    {
+        Queue::fake();
+
+        EvaluateDebate::dispatch($this->debate);
+        EvaluateDebate::dispatch($this->debate);
+
+        Queue::assertPushed(EvaluateDebate::class, 1);
+    }
+
+    public function test_the_unique_lock_is_per_debate_and_outlives_the_retries(): void
+    {
+        $job = new EvaluateDebate($this->debate);
+
+        $this->assertInstanceOf(ShouldBeUnique::class, $job);
+        $this->assertSame((string) $this->debate->id, $job->uniqueId());
+        $this->assertSame(600, $job->uniqueFor);
+        // The lock lasts as long as the job may be retried.
+        $this->assertEqualsWithDelta($job->uniqueFor, $job->retryUntil()->getTimestamp() - now()->getTimestamp(), 2);
+    }
+
+    public function test_a_report_that_already_exists_is_not_evaluated_again(): void
+    {
+        $this->debate->update(['ai_feedback' => self::REPORT]);
+        DebateEvaluator::fake();
+
+        EvaluateDebate::dispatch($this->debate);
+
+        DebateEvaluator::assertNeverPrompted();
+        $this->assertSame(self::REPORT, $this->debate->fresh()->ai_feedback);
+        $this->assertSame(0, UserVocabulary::count());
+        Event::assertNotDispatched(DebateEvaluated::class);
+    }
+
+    public function test_a_retry_reports_the_same_added_words(): void
+    {
+        // One answer per attempt: the retry asks the evaluator again.
+        DebateEvaluator::fake([self::REPORT, self::REPORT]);
+        // The first attempt fails when the report is saved, after the words were added to the deck.
+        $failing = true;
+        Debate::updating(function () use (&$failing) {
+            if ($failing) {
+                throw new RuntimeException('Database connection lost');
+            }
+        });
+
+        try {
+            EvaluateDebate::dispatch($this->debate);
+            $this->fail('The first attempt should have failed.');
+        } catch (RuntimeException) {
+            //
+        }
+        $failing = false;
+
+        // Nothing from the failed attempt is left behind, so the retry adds the same words.
+        $this->assertSame(0, UserVocabulary::count());
+        EvaluateDebate::dispatch($this->debate);
+
+        $this->assertSame(['contentious', 'ubiquitous', 'mitigate'], $this->debate->user->vocabularies()->orderBy('id')->pluck('word')->all());
+        Event::assertDispatched(DebateEvaluated::class, fn (DebateEvaluated $event) => $event->addedWords === ['contentious', 'ubiquitous', 'mitigate']);
+    }
+
+    public function test_a_failed_report_is_evaluated_when_it_is_requested_again(): void
+    {
+        DebateEvaluator::fake(fn () => throw new RuntimeException('Provider down'));
+
+        try {
+            EvaluateDebate::dispatch($this->debate);
+        } catch (RuntimeException) {
+            //
+        }
+        DebateEvaluator::fake([self::REPORT]);
+
+        EvaluateDebate::dispatch($this->debate);
+
+        $this->assertNotNull($this->debate->fresh()->ai_feedback);
+        Event::assertDispatched(DebateEvaluated::class);
+    }
+
     public function test_it_waits_for_voice_turns_still_being_answered(): void
     {
         $evaluation = collect((new EvaluateDebate($this->debate))->middleware())->first(fn ($m) => $m instanceof WithoutOverlapping);
@@ -153,6 +234,22 @@ class EvaluateDebateTest extends TestCase
             $voiceTurn->getLockKey(new ProcessVoiceDebate($this->debate, 'turn.webm')),
             $evaluation->getLockKey(new EvaluateDebate($this->debate)),
         );
+    }
+
+    public function test_the_evaluator_uses_the_configured_timeout(): void
+    {
+        config(['debate.evaluator.timeout' => 75]);
+        DebateEvaluator::fake([self::REPORT]);
+
+        EvaluateDebate::dispatch($this->debate);
+
+        DebateEvaluator::assertPrompted(fn (AgentPrompt $prompt) => $prompt->agent->timeout() === 75);
+    }
+
+    public function test_the_default_evaluator_timeout_fits_within_the_evaluation_job_budget(): void
+    {
+        $this->assertSame(60, config('debate.evaluator.timeout'));
+        $this->assertLessThanOrEqual((new EvaluateDebate($this->debate))->timeout, config('debate.evaluator.timeout'));
     }
 
     public function test_the_report_is_broadcast_on_the_debate_channel(): void

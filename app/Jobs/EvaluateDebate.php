@@ -8,17 +8,19 @@ use App\Events\DebateEvaluated;
 use App\Events\DebateEvaluationFailed;
 use App\Models\Debate;
 use DateTimeInterface;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Throwable;
 
 /**
  * Post-session fluency analysis (Architecture.md, flow C): feedback on the user's
  * turns, stored in debates.ai_feedback, and recommended words added to their vocabulary.
  */
-class EvaluateDebate implements ShouldQueue
+class EvaluateDebate implements ShouldBeUnique, ShouldQueue
 {
     use Queueable;
 
@@ -36,15 +38,33 @@ class EvaluateDebate implements ShouldQueue
         'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me', 'my', 'your', 'our', 'their', 'this', 'that', 'these', 'those',
     ];
 
+    /**
+     * Seconds the job can run. The evaluator's timeout (config/debate.php, evaluator.timeout) must stay below this.
+     */
     public int $timeout = 90;
 
     public int $maxExceptions = 2;
 
     public int $backoff = 5;
 
+    /**
+     * Seconds the unique lock is held. A second request for the same debate inside this window is dropped,
+     * so a double click on "Finish" does not pay for two reports. It matches retryUntil(), so the lock cannot
+     * outlive the job's retries, and it is released as soon as the job succeeds or finally fails.
+     */
+    public int $uniqueFor = 600;
+
     public function __construct(public Debate $debate)
     {
         $this->onQueue(config('debate.queue'));
+    }
+
+    /**
+     * The unique lock is per debate.
+     */
+    public function uniqueId(): string
+    {
+        return (string) $this->debate->getKey();
     }
 
     /**
@@ -68,15 +88,30 @@ class EvaluateDebate implements ShouldQueue
      */
     public function handle(): void
     {
+        // A report is written once. A duplicate that got past the unique lock, or a retry queued after the
+        // report was already saved, must not pay for a second evaluation.
+        $current = $this->debate->fresh();
+
+        if ($current === null || $current->ai_feedback !== null) {
+            return;
+        }
+
         $turns = $this->debate->messages()
             ->where('role', MessageRole::User)
             ->orderBy('id')
             ->pluck('transcript');
 
         $feedback = $turns->isEmpty() ? self::EMPTY_FEEDBACK : $this->evaluate($turns);
-        $addedWords = $this->rememberVocabulary($feedback['recommended_vocabulary']);
 
-        $this->debate->update(['ai_feedback' => $feedback]);
+        // The words and the report are saved together: if either fails, both roll back, so a retry starts
+        // from the same deck and reports the same added words.
+        $addedWords = DB::transaction(function () use ($feedback) {
+            $added = $this->rememberVocabulary($feedback['recommended_vocabulary']);
+
+            $this->debate->update(['ai_feedback' => $feedback]);
+
+            return $added;
+        });
 
         // The report is stored; a broadcasting outage must not trigger a second evaluation.
         rescue(fn () => DebateEvaluated::dispatch($this->debate, $addedWords));

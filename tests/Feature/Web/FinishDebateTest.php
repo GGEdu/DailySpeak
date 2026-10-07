@@ -51,6 +51,16 @@ class FinishDebateTest extends TestCase
         $this->assertTrue($debate->fresh()->ended_at->equalTo($endedAt));
     }
 
+    public function test_a_double_click_on_finish_queues_one_report(): void
+    {
+        $debate = Debate::factory()->create();
+
+        $this->actingAs($debate->user)->post("/debates/{$debate->id}/finish")->assertRedirect();
+        $this->actingAs($debate->user)->post("/debates/{$debate->id}/finish")->assertRedirect();
+
+        Queue::assertPushed(EvaluateDebate::class, 1);
+    }
+
     public function test_a_debate_that_already_has_its_report_cannot_be_finished_again(): void
     {
         $debate = Debate::factory()->completed()->create();

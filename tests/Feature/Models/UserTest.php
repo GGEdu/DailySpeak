@@ -2,11 +2,15 @@
 
 namespace Tests\Feature\Models;
 
+use App\Enums\DebateStatus;
 use App\Enums\EnglishLevel;
 use App\Models\Debate;
+use App\Models\NewsArticle;
 use App\Models\User;
 use App\Models\UserVocabulary;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 class UserTest extends TestCase
@@ -42,6 +46,52 @@ class UserTest extends TestCase
         $this->assertCount(3, $user->vocabularies);
         $this->assertContainsOnlyInstancesOf(Debate::class, $user->debates);
         $this->assertContainsOnlyInstancesOf(UserVocabulary::class, $user->vocabularies);
+    }
+
+    public function test_starting_a_debate_twice_resumes_the_same_one(): void
+    {
+        $user = User::factory()->create();
+        $article = NewsArticle::factory()->create();
+
+        $first = $user->startDebate($article);
+        $second = $user->startDebate($article);
+
+        $this->assertTrue($first->is($second));
+        $this->assertSame(1, $user->debates()->count());
+    }
+
+    public function test_a_finished_debate_does_not_block_a_new_one(): void
+    {
+        $user = User::factory()->create();
+        $article = NewsArticle::factory()->create();
+        Debate::factory()->completed()->for($user)->for($article)->create();
+
+        $debate = $user->startDebate($article);
+
+        $this->assertSame(DebateStatus::Active, $debate->status);
+        $this->assertSame(2, $user->debates()->count());
+    }
+
+    public function test_a_concurrent_start_resolves_to_the_debate_that_won_the_race(): void
+    {
+        $user = User::factory()->create();
+        $article = NewsArticle::factory()->create();
+        $winner = null;
+        $racing = false;
+        // Another request inserts its debate right after this one looked for an active debate and found none.
+        DB::listen(function (QueryExecuted $query) use ($user, $article, &$winner, &$racing) {
+            if (! $racing && $winner === null && str_starts_with($query->sql, 'select') && str_contains($query->sql, '"debates"')) {
+                $racing = true;
+                $winner = Debate::factory()->for($user)->for($article)->create();
+                $racing = false;
+            }
+        });
+
+        $debate = $user->startDebate($article);
+
+        $this->assertNotNull($winner);
+        $this->assertTrue($debate->is($winner));
+        $this->assertSame(1, $user->debates()->count());
     }
 
     public function test_deleting_a_user_cascades_to_their_debates_and_vocabulary(): void

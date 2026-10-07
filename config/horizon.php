@@ -202,7 +202,9 @@ return [
         'supervisor-1' => [
             'connection' => 'redis',
             'queue' => ['debates', 'default'],
-            'balance' => 'auto',
+            // 'auto' balances the queues by workload and does not keep 'debates' first. With false, Horizon
+            // runs a single pool that listens to the queues in the order listed: debates before default.
+            'balance' => false,
             'autoScalingStrategy' => 'time',
             'maxProcesses' => 1,
             'maxTime' => 0,
