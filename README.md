@@ -7,6 +7,7 @@ La especificación técnica completa está en [`Architecture.md`](Architecture.m
 
 - Laravel 13 (PHP 8.3+) y Laravel AI SDK (`laravel/ai`)
 - Laravel Reverb (WebSockets), Horizon (colas en Redis) y Sanctum (API)
+- Frontend: Inertia.js v3 + Vue 3, Tailwind CSS v4 y Laravel Echo (`@laravel/echo-vue`)
 - PostgreSQL (columnas `jsonb`), Redis, Meilisearch y Mailpit vía Laravel Sail
 
 ## Puesta en marcha (Laravel Sail)
@@ -19,7 +20,11 @@ composer install
 ./vendor/bin/sail up -d
 ./vendor/bin/sail artisan key:generate
 ./vendor/bin/sail artisan migrate --seed
+./vendor/bin/sail npm install
+./vendor/bin/sail npm run build     # o `sail npm run dev` para recarga en caliente
 ```
+
+Abre http://localhost y entra con el usuario de prueba, o crea una cuenta.
 
 El seeder crea el usuario `test@example.com` (contraseña `password`, nivel C1), cinco noticias, un debate completado con sus mensajes y vocabulario de ejemplo.
 
@@ -82,6 +87,19 @@ Las rutas de la API usan Sanctum (`auth:sanctum`): cookie de sesión para la web
 
 El system prompt del tutor está en `config/prompts.php` (`debate_tutor`).
 
+## Frontend (web MVP)
+
+Inertia + Vue 3 con un diseño oscuro (`resources/js`):
+
+| Ruta              | Página                | Qué hace |
+|-------------------|-----------------------|----------|
+| `/`               | `pages/Welcome.vue`   | Landing para invitados (los usuarios autenticados van al feed) |
+| `/login`, `/register` | `pages/auth/*`    | Acceso y registro (con el nivel B1/B2/C1) |
+| `/feed`           | `pages/Feed.vue`      | Noticias del día agrupadas por fecha: título, resumen, vocabulario clave y «Debate this» / «Continue debate» |
+| `/debates/{id}`   | `pages/Debate.vue`    | Chat de voz con el tutor |
+
+La vista de debate graba con `MediaRecorder` y usa la Web Audio API (`AnalyserNode`) para el visualizador del micrófono y de la respuesta. Muestra el estado **Listening → Thinking → Speaking**, sube cada turno a la API con la sesión del navegador y escucha `AIResponseGenerated` / `DebateTurnFailed` en el canal privado con Echo para reproducir la respuesta automáticamente. Se puede interrumpir al tutor pulsando el micro y usar la barra espaciadora como atajo.
+
 ## Tests
 
 Los tests usan la base de datos `testing` del contenedor de PostgreSQL (Sail la crea automáticamente):
@@ -105,4 +123,5 @@ Los tests usan la base de datos `testing` del contenedor de PostgreSQL (Sail la 
 - [x] Fase 1: Setup (Sail), migraciones y modelos
 - [x] Fase 2: Ingesta de noticias (News Harvester)
 - [x] Fase 3: Motor de debate por voz y WebSockets (Reverb + Horizon)
-- [ ] Fase 4: Frontend web MVP
+- [x] Fase 4: Frontend web MVP
+- [ ] Análisis de fluidez post-sesión (`ai_feedback`, Flujo C de `Architecture.md`)

@@ -3,6 +3,7 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Enums\DebateStatus;
 use App\Enums\EnglishLevel;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -57,5 +58,16 @@ class User extends Authenticatable
     public function vocabularies(): HasMany
     {
         return $this->hasMany(UserVocabulary::class);
+    }
+
+    /**
+     * Start a debate about the article, or resume the active one the user already has.
+     */
+    public function startDebate(NewsArticle $article): Debate
+    {
+        return $this->debates()->firstOrCreate([
+            'news_article_id' => $article->id,
+            'status' => DebateStatus::Active,
+        ]);
     }
 }

@@ -7,11 +7,17 @@
         "dev": "vite"
     },
     "devDependencies": {
+        "@inertiajs/vue3": "^3.8.0",
+        "@laravel/echo-vue": "^2.6.1",
         "@tailwindcss/vite": "^4.0.0",
+        "@vitejs/plugin-vue": "^6.0.9",
         "concurrently": "^10.0.3",
+        "laravel-echo": "^2.6.1",
         "laravel-vite-plugin": "^3.1",
+        "pusher-js": "^8.6.0",
         "tailwindcss": "^4.0.0",
-        "vite": "^8.0.0"
+        "vite": "^8.0.0",
+        "vue": "^3.5.43"
     },
     "optionalDependencies": {
         "@laravel/multiplex": "^0.4.1"

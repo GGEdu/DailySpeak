@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Enums\DebateStatus;
 use App\Http\Resources\DebateResource;
 use App\Models\NewsArticle;
 use Illuminate\Http\Request;
@@ -14,11 +13,6 @@ class DebateController extends Controller
      */
     public function store(Request $request, NewsArticle $newsArticle): DebateResource
     {
-        $debate = $request->user()->debates()->firstOrCreate([
-            'news_article_id' => $newsArticle->id,
-            'status' => DebateStatus::Active,
-        ]);
-
-        return new DebateResource($debate);
+        return new DebateResource($request->user()->startDebate($newsArticle));
     }
 }
