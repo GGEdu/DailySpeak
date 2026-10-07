@@ -5,6 +5,7 @@ use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\Auth\RegisteredUserController;
 use App\Http\Controllers\DebateSessionController;
 use App\Http\Controllers\FeedController;
+use App\Http\Controllers\VocabularyController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
@@ -33,6 +34,14 @@ Route::middleware('auth')->group(function () {
     Route::post('/debates/{debate}/finish', [DebateSessionController::class, 'finish'])
         ->can('finish', 'debate')
         ->name('debates.finish');
+
+    Route::get('/vocabulary', [VocabularyController::class, 'index'])->name('vocabulary.index');
+    Route::post('/vocabulary/{vocabulary}/review', [VocabularyController::class, 'review'])
+        ->can('update', 'vocabulary')
+        ->name('vocabulary.review');
+    Route::delete('/vocabulary/{vocabulary}', [VocabularyController::class, 'destroy'])
+        ->can('delete', 'vocabulary')
+        ->name('vocabulary.destroy');
 });
 
 Route::middleware(['auth', 'can:admin'])->prefix('admin')->name('admin.')->group(function () {

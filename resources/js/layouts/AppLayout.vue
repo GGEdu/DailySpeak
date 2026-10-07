@@ -6,6 +6,7 @@ import AppLogo from '../components/AppLogo.vue';
 const page = usePage();
 const user = computed(() => page.props.auth.user);
 const status = computed(() => page.props.flash?.status);
+const dueWords = computed(() => page.props.dueWords ?? 0);
 </script>
 
 <template>
@@ -23,6 +24,16 @@ const status = computed(() => page.props.flash?.status);
 
                 <nav class="flex items-center gap-3 text-sm sm:gap-5">
                     <Link href="/feed" class="hidden text-ink-400 transition hover:text-ink-100 sm:inline">Today's news</Link>
+                    <Link href="/vocabulary" class="flex items-center gap-1.5 text-ink-400 transition hover:text-ink-100">
+                        Words
+                        <span
+                            v-if="dueWords"
+                            class="rounded-full bg-speaking/15 px-1.5 text-[11px] font-semibold text-speaking"
+                            :aria-label="`${dueWords} words due for review`"
+                        >
+                            {{ dueWords }}
+                        </span>
+                    </Link>
                     <Link v-if="user.is_admin" href="/admin/sources" class="text-ink-400 transition hover:text-ink-100">Sources</Link>
                     <span
                         class="rounded-full border border-white/10 px-2.5 py-0.5 text-xs font-medium text-ink-300"

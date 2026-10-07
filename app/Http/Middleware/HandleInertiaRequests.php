@@ -40,6 +40,8 @@ class HandleInertiaRequests extends Middleware
             'auth' => [
                 'user' => fn () => $request->user()?->only(['id', 'name', 'email', 'current_level', 'is_admin']),
             ],
+            // Words due for spaced-repetition review (badge in the navigation).
+            'dueWords' => fn () => $request->user()?->vocabularies()->due()->count() ?? 0,
             'flash' => [
                 'status' => fn () => $request->session()->get('status'),
             ],

@@ -1,4 +1,5 @@
 <script setup>
+import { Link } from '@inertiajs/vue3';
 import { computed } from 'vue';
 
 const props = defineProps({
@@ -58,6 +59,9 @@ const isEmpty = computed(
                         <p class="mt-1 text-sm text-ink-300 italic">“{{ item.context }}”</p>
                     </li>
                 </ul>
+                <Link href="/vocabulary" class="mt-4 inline-block text-sm font-medium text-ink-300 underline-offset-4 hover:text-ink-100 hover:underline">
+                    Review your words →
+                </Link>
             </section>
 
             <section v-if="feedback.grammar_errors.length" class="rounded-2xl border border-white/8 bg-ink-900/60 p-5">
