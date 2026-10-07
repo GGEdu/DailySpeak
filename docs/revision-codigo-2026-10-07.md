@@ -4,6 +4,26 @@
 
 **Veredicto: WARNING.** Ningún CRITICAL. Los dos HIGH eran de despliegue detrás de un proxy y están resueltos (uno en código, otro en configuración). Quedan abiertos varios MEDIUM de fiabilidad y coste.
 
+## Estado al cierre del 2026-10-07
+
+Todos los hallazgos abiertos se trabajaron el mismo día, en ramas separadas, y se integraron con tests (273 PHP + 12 JS en verde):
+
+| # | Estado | Cómo |
+|---|---|---|
+| 4 | ✅ | «Fetch now» despacha `FetchNewsSource` en una cola y un supervisor propios (`news`): job 1500 s < supervisor 1560 s < `retry_after` 1800 s. |
+| 5 | ✅ | `NewsHarvester`: el cupo cuenta artículos **guardados**, con un tope de `3 × cupo` descargas; los ítems sin texto se recuerdan 7 días. |
+| 6 | ✅ | `SafeHttpFetcher`: solo http/https, rechaza IPs privadas o reservadas (cada redirección se valida), límite de tamaño mientras descarga. Riesgo residual: DNS rebinding entre la comprobación y la descarga. |
+| 7 | ✅ | El borrado RGPD solo anula `audio_path` si el fichero ya no está; si no, aviso y código de salida 1. |
+| 8 | ✅ | Timeouts configurables con presupuesto documentado y testeado. |
+| 9 | ⏳ | `.env.example` sigue sin corregir (permisos del entorno de trabajo); el README documenta las variables. |
+| 10 | ✅ | 300 turnos/día por usuario y **verificación de correo** obligatoria antes de usar la app. |
+| 13-17 | ✅ | Informe único por debate, índice único parcial de debate activo, el job de voz ignora debates terminados, el reintento de TTS reutiliza la réplica, el vocabulario y el informe en una transacción. |
+| 18 | ❎ | **No se reproduce**: en Laravel 13 `/broadcasting/auth` no comprueba CSRF. Sin cambios. |
+| 19-22 | ✅ | Aviso de log con `DEBATE_LLM_OPTIONS` inválido; prioridad real de la cola `debates` y `horizon:snapshot`; `REVERB_ALLOWED_ORIGINS`; mensajes del micrófono (HTTPS, permiso denegado, sin soporte). |
+| 23 | ⏳ | La migración sigue sembrando BBC World. Las licencias de las fuentes son una decisión pendiente. |
+
+Además: feeds **Atom**, **categorías** con filtro en el feed, **voz de respaldo** del tutor, cabecera móvil y foco por teclado en el panel de traducción.
+
 ## Resueltos en la rama `deploy/litellm-homelab`
 
 | # | Sev. | Qué | Cómo |
