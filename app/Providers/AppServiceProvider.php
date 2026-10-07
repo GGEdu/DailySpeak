@@ -50,9 +50,24 @@ class AppServiceProvider extends ServiceProvider
         ]);
 
         RateLimiter::for('debate-audio', function (Request $request) {
-            return $request->user()?->is_admin
-                ? Limit::none()
-                : Limit::perMinute(self::AUDIO_UPLOADS_PER_MINUTE)->by($request->user()?->id ?: $request->ip());
+            if ($request->user()?->is_admin) {
+                return Limit::none();
+            }
+
+            $who = $request->user()?->id ?: $request->ip();
+
+            return [
+                Limit::perMinute(self::AUDIO_UPLOADS_PER_MINUTE)
+                    ->by('minute:'.$who)
+                    ->response(fn (Request $request, array $headers) => response()->json([
+                        'message' => 'You are sending voice turns too fast. Wait a moment and try again.',
+                    ], 429, $headers)),
+                Limit::perDay((int) config('debate.audio.daily_turns'))
+                    ->by('day:'.$who)
+                    ->response(fn (Request $request, array $headers) => response()->json([
+                        'message' => "You have reached today's limit of voice turns. Try again later.",
+                    ], 429, $headers)),
+            ];
         });
     }
 

@@ -5,6 +5,7 @@ namespace Tests\Feature\Api;
 use App\Jobs\ProcessVoiceDebate;
 use App\Models\Debate;
 use App\Models\User;
+use App\Providers\AppServiceProvider;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Queue\Middleware\WithoutOverlapping;
@@ -101,6 +102,53 @@ class DebateAudioUploadTest extends TestCase
     {
         $this->postJson($this->url(), ['audio' => UploadedFile::fake()->create('turn.webm', 10, 'audio/webm')])
             ->assertUnauthorized();
+    }
+
+    public function test_the_daily_number_of_voice_turns_is_capped(): void
+    {
+        config(['debate.audio.daily_turns' => 2]);
+        Sanctum::actingAs($this->user);
+
+        $this->post($this->url(), ['audio' => UploadedFile::fake()->create('turn.webm', 50, 'audio/webm')])->assertAccepted();
+        $this->post($this->url(), ['audio' => UploadedFile::fake()->create('turn.webm', 50, 'audio/webm')])->assertAccepted();
+
+        $this->postJson($this->url(), ['audio' => UploadedFile::fake()->create('turn.webm', 50, 'audio/webm')])
+            ->assertStatus(429)
+            ->assertJsonPath('message', "You have reached today's limit of voice turns. Try again later.");
+
+        Queue::assertPushed(ProcessVoiceDebate::class, 2);
+    }
+
+    public function test_the_per_minute_limit_asks_the_user_to_slow_down(): void
+    {
+        Sanctum::actingAs($this->user);
+        $audio = fn () => ['audio' => UploadedFile::fake()->create('turn.webm', 10, 'audio/webm')];
+
+        for ($i = 0; $i < AppServiceProvider::AUDIO_UPLOADS_PER_MINUTE; $i++) {
+            $this->post($this->url(), $audio())->assertAccepted();
+        }
+
+        $this->postJson($this->url(), $audio())
+            ->assertStatus(429)
+            ->assertJsonPath('message', 'You are sending voice turns too fast. Wait a moment and try again.');
+    }
+
+    public function test_the_daily_cap_does_not_apply_to_admins(): void
+    {
+        config(['debate.audio.daily_turns' => 1]);
+        $admin = User::factory()->admin()->create();
+        $debate = Debate::factory()->for($admin)->create();
+        Sanctum::actingAs($admin);
+
+        for ($i = 0; $i < 3; $i++) {
+            $this->post("/api/debates/{$debate->id}/audio", ['audio' => UploadedFile::fake()->create('turn.webm', 50, 'audio/webm')])
+                ->assertAccepted();
+        }
+    }
+
+    public function test_the_default_daily_cap_is_300_turns(): void
+    {
+        $this->assertSame(300, config('debate.audio.daily_turns'));
     }
 
     private function url(): string
