@@ -1,5 +1,9 @@
 <?php
 
+// Parsed here, not silently defaulted below, so an invalid value can be reported at boot.
+$llmOptionsJson = trim((string) env('DEBATE_LLM_OPTIONS', ''));
+$llmOptions = $llmOptionsJson === '' ? [] : json_decode($llmOptionsJson, true);
+
 return [
 
     /*
@@ -82,7 +86,9 @@ return [
         // Provider-specific request options (JSON) merged into every tutor request. A lower
         // reasoning effort answers several times faster: {"reasoning_effort":"low"} for NVIDIA,
         // Groq and other OpenAI-compatible APIs, {"reasoning":{"effort":"low"}} for OpenAI.
-        'options' => json_decode((string) env('DEBATE_LLM_OPTIONS'), true) ?: [],
+        'options' => is_array($llmOptions) ? $llmOptions : [],
+        // False when DEBATE_LLM_OPTIONS is not a JSON object: the options are ignored and a warning is logged.
+        'options_valid' => is_array($llmOptions),
         // Only the most recent messages are sent as history, so long debates stay fast and cheap.
         'history_messages' => 30,
     ],

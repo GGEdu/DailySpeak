@@ -7,6 +7,7 @@ use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Middleware\TrustProxies;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 
@@ -41,6 +42,7 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         $this->trustProxies();
+        $this->warnAboutInvalidDebateOptions();
 
         Gate::define('admin', fn (User $user) => $user->is_admin);
 
@@ -81,6 +83,16 @@ class AppServiceProvider extends ServiceProvider
 
         if ($proxies !== '') {
             TrustProxies::at($proxies === '*' ? '*' : array_map('trim', explode(',', $proxies)));
+        }
+    }
+
+    /**
+     * An invalid DEBATE_LLM_OPTIONS is ignored (the tutor runs with the provider defaults); say so once per boot.
+     */
+    private function warnAboutInvalidDebateOptions(): void
+    {
+        if (config('debate.llm.options_valid') === false) {
+            Log::warning('DEBATE_LLM_OPTIONS is not a valid JSON object, so it is ignored and the tutor uses the provider defaults.');
         }
     }
 }
