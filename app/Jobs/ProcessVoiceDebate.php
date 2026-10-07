@@ -18,6 +18,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Laravel\Ai\Audio;
+use Laravel\Ai\Responses\AudioResponse;
 use Laravel\Ai\Transcription;
 use RuntimeException;
 use Throwable;
@@ -212,17 +213,36 @@ class ProcessVoiceDebate implements ShouldQueue
      */
     private function synthesise(string $text): string
     {
-        $path = Audio::of($text)
-            ->voice(config('debate.tts.voice'))
-            ->timeout(config('debate.tts.timeout'))
-            ->generate(config('debate.tts.provider'), config('debate.tts.model'))
-            ->storeAs("debates/{$this->debate->id}/replies", Str::uuid().'.mp3', config('debate.audio.disk'));
+        try {
+            $audio = $this->speak($text, config('debate.tts'));
+        } catch (Throwable $e) {
+            if (config('debate.tts.fallback.model') === null) {
+                throw $e;
+            }
+
+            // The user still hears the reply, in the backup voice; the failure stays in the log.
+            report($e);
+            $audio = $this->speak($text, config('debate.tts.fallback'));
+        }
+
+        $path = $audio->storeAs("debates/{$this->debate->id}/replies", Str::uuid().'.mp3', config('debate.audio.disk'));
 
         if (! is_string($path)) {
             throw new RuntimeException('The synthesised reply could not be stored.');
         }
 
         return $path;
+    }
+
+    /**
+     * @param  array{provider: string, model: ?string, voice: string, timeout: int}  $tts
+     */
+    private function speak(string $text, array $tts): AudioResponse
+    {
+        return Audio::of($text)
+            ->voice($tts['voice'])
+            ->timeout($tts['timeout'])
+            ->generate($tts['provider'], $tts['model']);
     }
 
     private function notifyFailure(string $reason): void

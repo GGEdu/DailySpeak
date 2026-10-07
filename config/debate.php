@@ -107,6 +107,16 @@ return [
         'model' => env('DEBATE_TTS_MODEL') ?: null,
         'voice' => env('DEBATE_TTS_VOICE', 'alloy'),
         'timeout' => (int) env('DEBATE_TTS_TIMEOUT', 30),
+
+        // A second voice, used only when the main one fails (e.g. its provider is down). Another
+        // model needs another voice id, so it is configured on its own. No model: no backup. Its
+        // timeout counts towards the voice turn budget above, after the main TTS timeout.
+        'fallback' => [
+            'provider' => env('DEBATE_TTS_FALLBACK_PROVIDER') ?: env('DEBATE_TTS_PROVIDER', 'openai'),
+            'model' => env('DEBATE_TTS_FALLBACK_MODEL') ?: null,
+            'voice' => env('DEBATE_TTS_FALLBACK_VOICE', 'alloy'),
+            'timeout' => (int) env('DEBATE_TTS_FALLBACK_TIMEOUT', 20),
+        ],
     ],
 
 ];

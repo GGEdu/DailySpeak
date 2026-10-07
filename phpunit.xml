@@ -49,6 +49,7 @@
         <env name="DEBATE_TTS_PROVIDER" value="openai"/>
         <env name="DEBATE_TTS_MODEL" value=""/>
         <env name="DEBATE_TTS_VOICE" value="alloy"/>
+        <env name="DEBATE_TTS_FALLBACK_MODEL" value=""/>
         <env name="LOOKUP_AI_PROVIDER" value="gemini"/>
         <env name="LOOKUP_AI_MODEL" value=""/>
         <env name="LOOKUP_TARGET_LANGUAGE" value="Spanish"/>
