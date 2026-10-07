@@ -19,6 +19,7 @@ cp .env.example .env
 composer install
 ./vendor/bin/sail up -d
 ./vendor/bin/sail artisan key:generate
+./vendor/bin/sail artisan scout:sync-index-settings
 ./vendor/bin/sail artisan migrate --seed
 ./vendor/bin/sail npm install
 ./vendor/bin/sail npm run build     # o `sail npm run dev` para recarga en caliente
@@ -42,7 +43,7 @@ Servicios expuestos por defecto:
 
 ## Ingesta de noticias (News Harvester)
 
-El comando `news:fetch` lee los feeds RSS configurados, descarga el texto de cada artículo nuevo, lo resume con el agente `NewsSummarizer` (Laravel AI SDK) y lo guarda en `news_articles`. Está programado a diario a las 03:00 hora de Madrid (`NEWS_FETCH_TIME` / `NEWS_FETCH_TIMEZONE`); las fechas se siguen guardando en UTC.
+El comando `news:fetch` lee los feeds RSS configurados, descarga el texto de cada artículo nuevo, lo resume con el agente `NewsSummarizer` (Laravel AI SDK) y lo guarda en `news_articles`. Está programado a diario a las 03:00 hora de Madrid (`NEWS_FETCH_TIME` / `SCHEDULE_TIMEZONE`); las fechas se siguen guardando en UTC.
 
 En Sail, el servicio `scheduler` ejecuta `php artisan schedule:work` de forma continua. En producción basta una entrada de cron que lance el scheduler cada minuto:
 
@@ -70,6 +71,16 @@ Configuración (`.env`):
 Las fuentes RSS se guardan en la tabla `news_sources` y se gestionan desde **/admin/sources** (solo administradores): alta con validación (el feed se descarga y se comprueba antes de guardarlo), pausar/activar, eliminar y «Fetch now» para leer una fuente al momento por la cola. La migración crea BBC News – World como fuente inicial; úsala solo en desarrollo, ya que sus condiciones exigen licencia para uso comercial.
 
 El prompt de resumen está en `config/prompts.php`. Los artículos ya guardados no se vuelven a resumir, y los que no tienen texto suficiente en su página (vídeos, directos) se omiten en lugar de resumirse a partir de la entradilla del RSS.
+
+## Búsqueda de noticias (Meilisearch)
+
+El buscador del feed (`/feed?q=…`) consulta todas las noticias, no solo las 20 últimas, con Laravel Scout y Meilisearch: tolera erratas («productivty» encuentra «productivity»), exige que aparezcan todas las palabras y ordena los resultados de más reciente a más antiguo. Busca en el título, el vocabulario clave y el resumen, por ese orden de importancia (`config/scout.php`).
+
+- Los artículos se indexan en segundo plano (cola `default`) al crearse, modificarse o borrarse, así que el recolector nunca espera al buscador.
+- Si Meilisearch no responde, el feed sigue funcionando con una búsqueda simple en PostgreSQL (`ILIKE` sobre título y resumen) y el error queda en el log.
+- Tras cambiar los ajustes del índice: `sail artisan scout:sync-index-settings`. Para reindexar todo: `sail artisan scout:import "App\Models\NewsArticle"`.
+- En producción, define `MEILISEARCH_KEY` (la *master key* o una clave con permisos de búsqueda e indexado).
+- Limitación: Meilisearch no reduce las palabras a su raíz, así que «geoengineering» no encuentra «geoengineer» (sí lo hace «geoengineer» o el prefijo «geoengin»).
 
 ## Debate por voz (API + WebSockets)
 
@@ -125,7 +136,7 @@ Inertia + Vue 3 con un diseño oscuro (`resources/js`):
 | `/`               | `pages/Welcome.vue`   | Landing para invitados (los usuarios autenticados van al feed) |
 | `/login`, `/register` | `pages/auth/*`    | Acceso y registro (con el nivel B1/B2/C1) |
 | `/forgot-password`, `/reset-password/{token}` | `pages/auth/*` | Recuperar la contraseña con un enlace por email (válido 60 min; en local llega a Mailpit, http://localhost:8025) |
-| `/feed`           | `pages/Feed.vue`      | Noticias del día agrupadas por fecha: título, resumen, vocabulario clave y «Debate this» / «Continue debate» |
+| `/feed`           | `pages/Feed.vue`      | Noticias del día agrupadas por fecha: título, resumen, vocabulario clave y «Debate this» / «Continue debate»; buscador de noticias |
 | `/debates/{id}`   | `pages/Debate.vue`    | Chat de voz con el tutor; «Finish debate» genera el informe de fluidez (muletillas, errores y vocabulario recomendado) |
 | `/vocabulary`     | `pages/Vocabulary.vue` | Palabras recomendadas en los informes, con repaso espaciado (Leitner: 1, 2, 4, 8 y 16 días) |
 | `/settings`       | `pages/Settings.vue`  | Cambiar el nivel de inglés (también desde la insignia del nivel en la cabecera) |
@@ -161,7 +172,7 @@ Los administradores gestionan las fuentes de noticias, no tienen límite de turn
 
 ## Tests
 
-Los tests usan la base de datos `testing` del contenedor de PostgreSQL (Sail la crea automáticamente):
+Los tests usan la base de datos `testing` del contenedor de PostgreSQL (Sail la crea automáticamente). Los proveedores de IA se sustituyen por *fakes* y Scout usa el driver `collection`, así que no hace falta ninguna API key ni tocar el índice de Meilisearch:
 
 ```bash
 ./vendor/bin/sail artisan test
@@ -183,4 +194,8 @@ Los tests usan la base de datos `testing` del contenedor de PostgreSQL (Sail la 
 - [x] Fase 2: Ingesta de noticias (News Harvester)
 - [x] Fase 3: Motor de debate por voz y WebSockets (Reverb + Horizon)
 - [x] Fase 4: Frontend web MVP
-- [ ] Análisis de fluidez post-sesión (`ai_feedback`, Flujo C de `Architecture.md`)
+- [x] Análisis de fluidez post-sesión (`ai_feedback`, Flujo C de `Architecture.md`) y repaso de vocabulario
+- [x] Transcripción visible antes de la respuesta, medición y reducción de latencia
+- [x] Tutor adaptado al nivel, recuperación de contraseña y búsqueda de noticias
+- [ ] Respuesta del tutor en streaming (texto y voz por frases)
+- [ ] Pendientes legales: licencia de las fuentes de noticias y RGPD (ver Privacidad)
