@@ -27,6 +27,9 @@ return [
     'audio' => [
         'disk' => env('DEBATE_AUDIO_DISK', 'local'),
         'url_ttl_minutes' => 60,
+        // GDPR data minimisation: users' recordings are deleted after this many days
+        // (debates:prune-recordings, daily). Transcripts and tutor replies are kept.
+        'retention_days' => (int) env('DEBATE_AUDIO_RETENTION_DAYS', 7),
         'max_upload_kilobytes' => 10 * 1024,
         // Accepted upload format (extension guessed from the file contents) => extension it is
         // stored with. Whisper picks its decoder from the file name, so e.g. "audio/webm"

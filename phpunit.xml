@@ -35,7 +35,7 @@
         <env name="NEWS_AI_PROVIDER" value="gemini"/>
         <env name="NEWS_AI_MODEL" value=""/>
         <env name="NEWS_FETCH_TIME" value="03:00"/>
-        <env name="NEWS_FETCH_TIMEZONE" value="Europe/Madrid"/>
+        <env name="SCHEDULE_TIMEZONE" value="Europe/Madrid"/>
         <env name="DEBATE_STT_PROVIDER" value="openai"/>
         <env name="DEBATE_STT_MODEL" value="whisper-1"/>
         <env name="DEBATE_LLM_PROVIDER" value="gemini"/>

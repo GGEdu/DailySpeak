@@ -108,6 +108,21 @@ Inertia + Vue 3 con un diseño oscuro (`resources/js`):
 
 La vista de debate graba con `MediaRecorder` y usa la Web Audio API (`AnalyserNode`) para el visualizador del micrófono y de la respuesta. Muestra el estado **Listening → Thinking → Speaking**, sube cada turno a la API con la sesión del navegador y escucha `AIResponseGenerated` / `DebateTurnFailed` en el canal privado con Echo para reproducir la respuesta automáticamente. Se puede interrumpir al tutor pulsando el micro y usar la barra espaciadora como atajo.
 
+## Privacidad (RGPD)
+
+Aplicado:
+
+- Las grabaciones de voz de los usuarios se borran a los **7 días** (`DEBATE_AUDIO_RETENTION_DAYS`) con `debates:prune-recordings`, programado a las 04:00 (hora de Madrid). Se conservan las transcripciones y las respuestas sintetizadas del tutor. También se borran las grabaciones huérfanas (turnos sin voz o fallidos).
+- Las grabaciones se guardan en disco privado y solo se sirven con URLs firmadas que caducan.
+
+Pendiente de ampliar:
+
+- [ ] Consentimiento explícito al registrarse (tratamiento de voz y envío a proveedores de IA).
+- [ ] Transferencias internacionales: el audio y las transcripciones se envían a OpenAI/Google/NVIDIA; revisar contratos (DPA) y la base legal.
+- [ ] Borrado de cuenta por el usuario (la base de datos ya borra en cascada debates, mensajes y vocabulario) y exportación de sus datos.
+- [ ] Política de retención de transcripciones, informes de fluidez y audios del tutor.
+- [ ] Registro de actividades de tratamiento y política de privacidad pública.
+
 ## Administradores
 
 ```bash

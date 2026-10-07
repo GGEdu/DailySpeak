@@ -12,14 +12,13 @@ return [
     | Daily Schedule
     |--------------------------------------------------------------------------
     |
-    | When the scheduler runs news:fetch. The timezone only applies to this
-    | task; the application itself keeps storing dates in UTC.
+    | When the scheduler runs news:fetch, in the scheduler's timezone
+    | (app.schedule_timezone, Europe/Madrid by default).
     |
     */
 
     'schedule' => [
         'time' => env('NEWS_FETCH_TIME', '03:00'),
-        'timezone' => env('NEWS_FETCH_TIMEZONE', 'Europe/Madrid'),
     ],
 
     /*

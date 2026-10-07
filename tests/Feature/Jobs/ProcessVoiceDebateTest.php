@@ -73,7 +73,7 @@ class ProcessVoiceDebateTest extends TestCase
 
         $this->assertSame(MessageRole::Assistant, $reply->role);
         $this->assertSame(self::TUTOR_SAYS, $reply->transcript);
-        $this->assertStringStartsWith("debates/{$this->debate->id}/", $reply->audio_path);
+        $this->assertStringStartsWith("debates/{$this->debate->id}/replies/", $reply->audio_path);
         $this->assertStringEndsWith('.mp3', $reply->audio_path);
         $this->assertSame('synthesised-mp3', Storage::disk('local')->get($reply->audio_path));
 

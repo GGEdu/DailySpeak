@@ -40,7 +40,7 @@ class DebateAudioUploadTest extends TestCase
             ->assertAccepted()
             ->assertExactJson(['status' => 'processing']);
 
-        $files = Storage::disk('local')->files("debates/{$this->debate->id}");
+        $files = Storage::disk('local')->files("debates/{$this->debate->id}/recordings");
         $this->assertCount(1, $files);
         // "audio/webm" is guessed as "weba", which Whisper rejects, so it is stored as ".webm".
         $this->assertStringEndsWith('.webm', $files[0]);

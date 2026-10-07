@@ -67,6 +67,9 @@ return [
 
     'timezone' => 'UTC',
 
+    // Scheduled tasks (news harvest, recording cleanup) run on Madrid time.
+    'schedule_timezone' => env('SCHEDULE_TIMEZONE', 'Europe/Madrid'),
+
     /*
     |--------------------------------------------------------------------------
     | Application Locale Configuration

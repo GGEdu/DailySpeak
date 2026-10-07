@@ -158,7 +158,7 @@ class ProcessVoiceDebate implements ShouldQueue
         $path = Audio::of($text)
             ->voice(config('debate.tts.voice'))
             ->generate(config('debate.tts.provider'), config('debate.tts.model'))
-            ->storeAs("debates/{$this->debate->id}", Str::uuid().'.mp3', config('debate.audio.disk'));
+            ->storeAs("debates/{$this->debate->id}/replies", Str::uuid().'.mp3', config('debate.audio.disk'));
 
         if (! is_string($path)) {
             throw new RuntimeException('The synthesised reply could not be stored.');

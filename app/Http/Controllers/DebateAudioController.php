@@ -22,7 +22,7 @@ class DebateAudioController extends Controller
         $extension = config('debate.audio.formats')[$recording->guessExtension()];
 
         $path = $recording->storeAs(
-            "debates/{$debate->id}",
+            "debates/{$debate->id}/recordings",
             Str::uuid().'.'.$extension,
             config('debate.audio.disk'),
         );
