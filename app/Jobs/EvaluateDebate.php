@@ -13,6 +13,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Throwable;
 
 /**
@@ -101,9 +102,16 @@ class EvaluateDebate implements ShouldBeUnique, ShouldQueue
             ->pluck('transcript');
 
         $feedback = $turns->isEmpty() ? self::EMPTY_FEEDBACK : $this->evaluate($turns);
-        $addedWords = $this->rememberVocabulary($feedback['recommended_vocabulary']);
 
-        $this->debate->update(['ai_feedback' => $feedback]);
+        // The words and the report are saved together: if either fails, both roll back, so a retry starts
+        // from the same deck and reports the same added words.
+        $addedWords = DB::transaction(function () use ($feedback) {
+            $added = $this->rememberVocabulary($feedback['recommended_vocabulary']);
+
+            $this->debate->update(['ai_feedback' => $feedback]);
+
+            return $added;
+        });
 
         // The report is stored; a broadcasting outage must not trigger a second evaluation.
         rescue(fn () => DebateEvaluated::dispatch($this->debate, $addedWords));

@@ -180,6 +180,34 @@ class EvaluateDebateTest extends TestCase
         Event::assertNotDispatched(DebateEvaluated::class);
     }
 
+    public function test_a_retry_reports_the_same_added_words(): void
+    {
+        // One answer per attempt: the retry asks the evaluator again.
+        DebateEvaluator::fake([self::REPORT, self::REPORT]);
+        // The first attempt fails when the report is saved, after the words were added to the deck.
+        $failing = true;
+        Debate::updating(function () use (&$failing) {
+            if ($failing) {
+                throw new RuntimeException('Database connection lost');
+            }
+        });
+
+        try {
+            EvaluateDebate::dispatch($this->debate);
+            $this->fail('The first attempt should have failed.');
+        } catch (RuntimeException) {
+            //
+        }
+        $failing = false;
+
+        // Nothing from the failed attempt is left behind, so the retry adds the same words.
+        $this->assertSame(0, UserVocabulary::count());
+        EvaluateDebate::dispatch($this->debate);
+
+        $this->assertSame(['contentious', 'ubiquitous', 'mitigate'], $this->debate->user->vocabularies()->orderBy('id')->pluck('word')->all());
+        Event::assertDispatched(DebateEvaluated::class, fn (DebateEvaluated $event) => $event->addedWords === ['contentious', 'ubiquitous', 'mitigate']);
+    }
+
     public function test_a_failed_report_is_evaluated_when_it_is_requested_again(): void
     {
         DebateEvaluator::fake(fn () => throw new RuntimeException('Provider down'));
