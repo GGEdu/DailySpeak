@@ -1,8 +1,8 @@
 /**
  * Laravel's XSRF-TOKEN cookie, sent back so Sanctum accepts session-authenticated API calls.
  */
-export function xsrfToken(cookie = document.cookie) {
-    const match = cookie.match(/(?:^|; )XSRF-TOKEN=([^;]*)/);
+function xsrfToken() {
+    const match = document.cookie.match(/(?:^|; )XSRF-TOKEN=([^;]*)/);
 
     return match ? decodeURIComponent(match[1]) : '';
 }
