@@ -154,10 +154,7 @@ async function startListening() {
         state.value = 'listening';
     } catch (error) {
         state.value = 'idle';
-        notice.value = {
-            tone: 'error',
-            text: error?.name === 'NotAllowedError' ? 'Microphone access is blocked. Allow it in your browser to start talking.' : error.message,
-        };
+        notice.value = { tone: 'error', text: error.message };
     }
 }
 

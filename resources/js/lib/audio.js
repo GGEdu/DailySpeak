@@ -22,6 +22,18 @@ export function createAnalyser() {
 }
 
 /**
+ * Why this page cannot record from the microphone, or null when it can. Browsers hide
+ * navigator.mediaDevices outside secure contexts (HTTPS or localhost), so that check has to come
+ * first: on plain http a supported browser would otherwise look like an unsupported one.
+ */
+export function recordingBlocker({ secureContext, mediaDevices, mediaRecorder }) {
+    if (!secureContext) return 'insecure';
+    if (!mediaDevices?.getUserMedia || !mediaRecorder) return 'unsupported';
+
+    return null;
+}
+
+/**
  * Best recording format this browser supports that the backend (and Whisper) accept.
  */
 export function preferredRecordingType() {
