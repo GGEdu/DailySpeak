@@ -63,7 +63,7 @@ class AuthenticationTest extends TestCase
             'current_level' => 'C1',
             'password' => 'a-strong-password',
             'password_confirmation' => 'a-strong-password',
-        ])->assertRedirect('/feed');
+        ])->assertRedirect('/email/verify');
 
         $user = User::firstWhere('email', 'ada@example.com');
         $this->assertSame(EnglishLevel::C1, $user->current_level);
