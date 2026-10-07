@@ -30,6 +30,9 @@ Route::middleware('auth')->group(function () {
     Route::get('/debates/{debate}', [DebateSessionController::class, 'show'])
         ->can('view', 'debate')
         ->name('debates.show');
+    Route::post('/debates/{debate}/finish', [DebateSessionController::class, 'finish'])
+        ->can('finish', 'debate')
+        ->name('debates.finish');
 });
 
 Route::middleware(['auth', 'can:admin'])->prefix('admin')->name('admin.')->group(function () {

@@ -1,8 +1,9 @@
 <script setup>
-import { Head, Link } from '@inertiajs/vue3';
+import { Head, Link, router } from '@inertiajs/vue3';
 import { useConnectionStatus, useEcho } from '@laravel/echo-vue';
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watchEffect } from 'vue';
 import ChatMessage from '../components/ChatMessage.vue';
+import FluencyReport from '../components/FluencyReport.vue';
 import StateIndicator from '../components/StateIndicator.vue';
 import VocabularyChips from '../components/VocabularyChips.vue';
 import VoiceOrb from '../components/VoiceOrb.vue';
@@ -24,6 +25,8 @@ const props = defineProps({
 const MIN_TURN_SECONDS = 0.6;
 const MAX_TURN_SECONDS = 60;
 const REPLY_TIMEOUT_MS = 90_000;
+const REPORT_POLL_MS = 3_000;
+const REPORT_TIMEOUT_MS = 120_000;
 
 // idle → listening (recording) → thinking (STT + LLM + TTS on the server) → speaking (reply playback) → idle
 const state = ref('idle');
@@ -37,6 +40,15 @@ const connection = useConnectionStatus();
 let replyTimeout = null;
 
 const isActive = computed(() => props.debate.status === 'active');
+
+// Fluency report (after "Finish"): pushed by DebateEvaluated, or picked up by polling.
+const liveFeedback = ref(null);
+const addedWords = ref([]);
+const evaluationFailed = ref(false);
+const feedback = computed(() => liveFeedback.value ?? props.debate.ai_feedback);
+const canFinish = computed(
+    () => isActive.value && state.value === 'idle' && conversation.value.some((message) => message.role === 'user' && !message.pending),
+);
 const isWideScreen = window.matchMedia('(min-width: 1024px)').matches;
 const paragraphs = computed(() => props.article.summary.split(/\n\s*\n/).filter(Boolean));
 const analyser = computed(() => {
@@ -78,6 +90,42 @@ useEcho(props.debate.channel, 'DebateTurnFailed', (event) => {
             : 'Something went wrong while answering that turn. Please try again.',
     );
 });
+
+useEcho(props.debate.channel, 'DebateEvaluated', (event) => {
+    liveFeedback.value = event.ai_feedback;
+    addedWords.value = event.added_words;
+    evaluationFailed.value = false;
+});
+
+useEcho(props.debate.channel, 'DebateEvaluationFailed', () => {
+    evaluationFailed.value = true;
+});
+
+// The report may be ready before this page re-subscribes after "Finish": poll as a fallback.
+watchEffect((onCleanup) => {
+    if (isActive.value || feedback.value || evaluationFailed.value) {
+        return;
+    }
+
+    const poll = setInterval(() => router.reload({ only: ['debate'] }), REPORT_POLL_MS);
+    const giveUp = setTimeout(() => (evaluationFailed.value = true), REPORT_TIMEOUT_MS);
+
+    onCleanup(() => {
+        clearInterval(poll);
+        clearTimeout(giveUp);
+    });
+});
+
+function finishDebate() {
+    if (confirm('Finish the debate and get your fluency report?')) {
+        router.post(`/debates/${props.debate.id}/finish`, {}, { preserveScroll: true });
+    }
+}
+
+function retryEvaluation() {
+    evaluationFailed.value = false;
+    router.post(`/debates/${props.debate.id}/finish`, {}, { preserveScroll: true });
+}
 
 // --- Voice turn -----------------------------------------------------------------------------
 
@@ -160,8 +208,11 @@ async function speak(message) {
 
     try {
         await player.play(message.audio_url, message.id);
-    } catch {
-        notice.value = { tone: 'info', text: 'Your browser blocked autoplay. Press “Replay” to hear the answer.' };
+    } catch (error) {
+        notice.value =
+            error?.name === 'NotAllowedError'
+                ? { tone: 'info', text: 'Your browser blocked autoplay. Press “Replay” to hear the answer.' }
+                : { tone: 'error', text: "The tutor's audio couldn't be played, but you can read the reply above." };
     } finally {
         if (state.value === 'speaking') {
             state.value = 'idle';
@@ -261,11 +312,22 @@ onBeforeUnmount(() => {
         <!-- Voice debate -->
         <section class="flex min-h-[calc(100vh-11rem)] flex-col overflow-hidden rounded-3xl border border-white/8 bg-ink-900/50 lg:min-h-[640px]">
             <header class="flex items-center justify-between gap-3 border-b border-white/5 px-4 py-3.5 sm:px-5">
-                <StateIndicator :state="state" />
-                <span class="flex items-center gap-2 text-xs text-ink-400" :title="`Realtime connection: ${connection}`">
-                    <span class="size-1.5 rounded-full" :class="connection === 'connected' ? 'bg-emerald-400 shadow-[0_0_8px_var(--color-emerald-400)]' : 'animate-pulse bg-amber-400'" />
-                    <span class="sr-only sm:not-sr-only">{{ connection === 'connected' ? 'Live' : 'Connecting…' }}</span>
-                </span>
+                <StateIndicator v-if="isActive" :state="state" />
+                <span v-else class="text-xs font-medium text-ink-400">Debate finished</span>
+                <div class="flex items-center gap-3">
+                    <button
+                        v-if="canFinish"
+                        type="button"
+                        class="rounded-lg border border-white/10 px-2.5 py-1 text-xs font-medium text-ink-300 transition hover:bg-white/5 hover:text-ink-100"
+                        @click="finishDebate"
+                    >
+                        Finish
+                    </button>
+                    <span class="flex items-center gap-2 text-xs text-ink-400" :title="`Realtime connection: ${connection}`">
+                        <span class="size-1.5 rounded-full" :class="connection === 'connected' ? 'bg-emerald-400 shadow-[0_0_8px_var(--color-emerald-400)]' : 'animate-pulse bg-amber-400'" />
+                        <span class="sr-only sm:not-sr-only">{{ connection === 'connected' ? 'Live' : 'Connecting…' }}</span>
+                    </span>
+                </div>
             </header>
 
             <div ref="scroller" class="flex-1 space-y-3 overflow-y-auto px-5 py-6 lg:max-h-[420px]" aria-live="polite">
@@ -285,11 +347,15 @@ onBeforeUnmount(() => {
                 />
             </div>
 
-            <footer class="flex flex-col items-center border-t border-white/5 px-5 pt-4 pb-7">
-                <VoiceOrb :state="state" :analyser="analyser" :label="orbLabel" :disabled="!isActive || state === 'thinking'" @press="press" />
+            <footer v-if="!isActive" class="border-t border-white/5 px-5 py-6">
+                <FluencyReport :feedback="feedback" :failed="evaluationFailed" :added-words="addedWords" @retry="retryEvaluation" />
+            </footer>
+
+            <footer v-else class="flex flex-col items-center border-t border-white/5 px-5 pt-4 pb-7">
+                <VoiceOrb :state="state" :analyser="analyser" :label="orbLabel" :disabled="state === 'thinking'" @press="press" />
 
                 <p class="-mt-2 text-sm font-medium text-ink-200">
-                    {{ isActive ? orbLabel : 'This debate has finished.' }}
+                    {{ orbLabel }}
                     <span v-if="state === 'listening'" class="ml-1.5 font-mono text-listening tabular-nums">{{ clock(recorder.elapsed.value) }}</span>
                 </p>
 

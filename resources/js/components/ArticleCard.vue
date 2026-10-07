@@ -7,6 +7,7 @@ import VocabularyChips from './VocabularyChips.vue';
 const props = defineProps({
     article: { type: Object, required: true },
     activeDebateId: { type: Number, default: null },
+    finishedDebateId: { type: Number, default: null },
 });
 
 const expanded = ref(false);
@@ -42,22 +43,31 @@ const paragraphs = computed(() => props.article.summary.split(/\n\s*\n/).filter(
                 <VocabularyChips :words="article.key_vocabulary" />
             </div>
 
-            <Link
-                v-if="activeDebateId"
-                :href="`/debates/${activeDebateId}`"
-                class="shrink-0 rounded-xl border border-speaking/40 px-4 py-2.5 text-center text-sm font-semibold text-speaking transition hover:bg-speaking/10"
-            >
-                Continue debate
-            </Link>
-            <Link
-                v-else
-                :href="`/news-articles/${article.id}/debate`"
-                method="post"
-                as="button"
-                class="shrink-0 rounded-xl bg-ink-100 px-4 py-2.5 text-sm font-semibold text-ink-950 transition hover:bg-white"
-            >
-                Debate this
-            </Link>
+            <div class="flex shrink-0 items-center gap-3">
+                <Link
+                    v-if="finishedDebateId && !activeDebateId"
+                    :href="`/debates/${finishedDebateId}`"
+                    class="text-sm font-medium text-ink-400 underline-offset-4 transition hover:text-ink-100 hover:underline"
+                >
+                    View report
+                </Link>
+                <Link
+                    v-if="activeDebateId"
+                    :href="`/debates/${activeDebateId}`"
+                    class="shrink-0 rounded-xl border border-speaking/40 px-4 py-2.5 text-center text-sm font-semibold text-speaking transition hover:bg-speaking/10"
+                >
+                    Continue debate
+                </Link>
+                <Link
+                    v-else
+                    :href="`/news-articles/${article.id}/debate`"
+                    method="post"
+                    as="button"
+                    class="shrink-0 rounded-xl bg-ink-100 px-4 py-2.5 text-sm font-semibold text-ink-950 transition hover:bg-white"
+                >
+                    Debate this
+                </Link>
+            </div>
         </div>
     </article>
 </template>

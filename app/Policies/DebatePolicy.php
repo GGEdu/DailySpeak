@@ -17,6 +17,15 @@ class DebatePolicy
     }
 
     /**
+     * Determine whether the user can finish the debate and request its fluency report
+     * (also used to retry an evaluation that failed).
+     */
+    public function finish(User $user, Debate $debate): bool
+    {
+        return $this->view($user, $debate) && $debate->ai_feedback === null;
+    }
+
+    /**
      * Determine whether the user can send a new voice turn to the debate.
      */
     public function speak(User $user, Debate $debate): Response

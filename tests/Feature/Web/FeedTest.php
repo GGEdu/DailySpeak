@@ -47,16 +47,19 @@ class FeedTest extends TestCase
             ->assertInertia(fn (Assert $page) => $page->has('articles', 20));
     }
 
-    public function test_it_points_to_the_users_active_debates(): void
+    public function test_it_points_to_the_users_active_and_finished_debates(): void
     {
         $user = User::factory()->create();
         [$debated, $finished, $other] = NewsArticle::factory(3)->create();
         $active = Debate::factory()->for($user)->for($debated)->create();
         Debate::factory()->completed()->for($user)->for($finished)->create();
+        $finishedDebate = Debate::factory()->completed()->for($user)->for($finished)->create(); // the latest one wins
         Debate::factory()->for($other)->create(); // another user's
 
         $this->actingAs($user)
             ->get('/feed')
-            ->assertInertia(fn (Assert $page) => $page->where('activeDebates', [$debated->id => $active->id]));
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('activeDebates', [$debated->id => $active->id])
+                ->where('finishedDebates', [$finished->id => $finishedDebate->id]));
     }
 }

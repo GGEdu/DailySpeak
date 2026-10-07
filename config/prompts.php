@@ -43,4 +43,23 @@ return [
         4. Do NOT correct grammar during the conversation. Just focus on the debate.
         PROMPT,
 
+    /*
+    |--------------------------------------------------------------------------
+    | Fluency Evaluator Prompt
+    |--------------------------------------------------------------------------
+    |
+    | Post-session analysis of the learner's turns (Architecture.md §5). The
+    | JSON shape is enforced by the DebateEvaluator structured output schema.
+    |
+    */
+
+    'debate_evaluator' => <<<'PROMPT'
+        Analyze the following transcript of an English learner's side of a debate.
+        1. Identify their most frequently overused basic words (crutch words).
+        2. Identify syntactic errors or direct translations from their native language.
+        3. Provide 3 specific C1-level vocabulary words they should have used instead.
+        Return the output strictly as a JSON object matching this structure:
+        { 'crutch_words': [], 'grammar_errors': [{ 'error': '', 'correction': '' }], 'recommended_vocabulary': [{ 'word': '', 'context': '' }] }
+        PROMPT,
+
 ];

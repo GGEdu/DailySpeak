@@ -38,6 +38,7 @@ class StartDebateTest extends TestCase
                 'status' => 'active',
                 'started_at' => $debate->started_at->toJSON(),
                 'ended_at' => null,
+                'ai_feedback' => null,
                 'channel' => "debates.{$debate->id}",
             ],
         ]);

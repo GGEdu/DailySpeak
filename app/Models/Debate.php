@@ -77,6 +77,25 @@ class Debate extends Model
     }
 
     /**
+     * Lock shared by every queued job that writes to this debate, so turns and the
+     * final evaluation run one at a time and in order.
+     */
+    public function jobLockKey(): string
+    {
+        return "debate:{$this->getKey()}";
+    }
+
+    /**
+     * Close the debate (idempotent).
+     */
+    public function finish(): void
+    {
+        if ($this->isActive()) {
+            $this->update(['status' => DebateStatus::Completed, 'ended_at' => now()]);
+        }
+    }
+
+    /**
      * Get the private channel route the debate's realtime events are authorised on.
      */
     public function broadcastChannelRoute(): string

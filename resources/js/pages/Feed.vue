@@ -11,6 +11,8 @@ const props = defineProps({
     articles: { type: Array, required: true },
     // { [articleId]: debateId } — an empty PHP collection is serialised as [].
     activeDebates: { type: [Object, Array], required: true },
+    // { [articleId]: debateId } of the latest finished debate, to open its fluency report.
+    finishedDebates: { type: [Object, Array], required: true },
 });
 
 const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
@@ -53,7 +55,13 @@ const days = computed(() => {
             </h2>
 
             <div class="space-y-4">
-                <ArticleCard v-for="article in day.articles" :key="article.id" :article="article" :active-debate-id="activeDebates[article.id] ?? null" />
+                <ArticleCard
+                    v-for="article in day.articles"
+                    :key="article.id"
+                    :article="article"
+                    :active-debate-id="activeDebates[article.id] ?? null"
+                    :finished-debate-id="finishedDebates[article.id] ?? null"
+                />
             </div>
         </section>
     </div>

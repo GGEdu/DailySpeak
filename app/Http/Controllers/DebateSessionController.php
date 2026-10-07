@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Resources\DebateMessageResource;
 use App\Http\Resources\DebateResource;
 use App\Http\Resources\NewsArticleResource;
+use App\Jobs\EvaluateDebate;
 use App\Models\Debate;
 use App\Models\NewsArticle;
 use Illuminate\Http\RedirectResponse;
@@ -42,5 +43,17 @@ class DebateSessionController extends Controller
             'article' => (new NewsArticleResource($debate->newsArticle))->resolve(),
             'messages' => DebateMessageResource::collection($debate->messages()->orderBy('id')->get())->resolve(),
         ]);
+    }
+
+    /**
+     * Finish the debate and queue its fluency report (or retry a report that failed).
+     */
+    public function finish(Debate $debate): RedirectResponse
+    {
+        $debate->finish();
+
+        EvaluateDebate::dispatch($debate);
+
+        return to_route('debates.show', $debate);
     }
 }

@@ -61,7 +61,7 @@ class ProcessVoiceDebate implements ShouldQueue
     public function middleware(): array
     {
         // Answer one turn at a time per debate so the conversation history stays in order.
-        return [(new WithoutOverlapping($this->debate->id))->releaseAfter(3)->expireAfter(180)];
+        return [(new WithoutOverlapping($this->debate->jobLockKey()))->shared()->releaseAfter(3)->expireAfter(180)];
     }
 
     /**

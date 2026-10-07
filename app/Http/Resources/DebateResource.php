@@ -24,6 +24,8 @@ class DebateResource extends JsonResource
             'status' => $this->status,
             'started_at' => $this->started_at,
             'ended_at' => $this->ended_at,
+            // Fluency report, null until the debate is finished and evaluated.
+            'ai_feedback' => $this->ai_feedback,
             // Private channel to subscribe to (with Laravel Echo) for AIResponseGenerated / DebateTurnFailed.
             'channel' => $this->broadcastChannel(),
         ];
