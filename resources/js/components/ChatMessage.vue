@@ -20,7 +20,7 @@ defineEmits(['play']);
             <p v-if="message.pending" class="flex items-center gap-1 py-1.5" aria-label="Transcribing">
                 <span v-for="dot in 3" :key="dot" class="size-1.5 animate-pulse rounded-full bg-ink-400" :style="{ animationDelay: `${dot * 150}ms` }" />
             </p>
-            <p v-else>{{ message.transcript }}</p>
+            <p v-else data-selectable>{{ message.transcript }}</p>
 
             <button
                 v-if="message.audio_url && !message.pending"

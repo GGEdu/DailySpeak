@@ -2,10 +2,13 @@
 
 namespace Tests\Feature\Web;
 
+use App\Ai\Agents\WordExplainer;
 use App\Models\User;
 use App\Models\UserVocabulary;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Inertia\Testing\AssertableInertia as Assert;
+use RuntimeException;
+use Tests\Feature\Api\WordLookupTest;
 use Tests\TestCase;
 
 class VocabularyTest extends TestCase
@@ -92,6 +95,65 @@ class VocabularyTest extends TestCase
         $this->actingAs($intruder)->delete("/vocabulary/{$word->id}")->assertForbidden();
 
         $this->assertSame(2, $word->fresh()->mastery_level);
+    }
+
+    public function test_the_page_shows_each_words_translation_and_analysis(): void
+    {
+        $word = UserVocabulary::factory()->create(['word' => 'nuance', 'translation' => 'matiz', 'analysis' => ['definition' => 'A subtle difference.']]);
+
+        $this->actingAs($word->user)
+            ->get('/vocabulary')
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('words.0.translation', 'matiz')
+                ->where('words.0.analysis.definition', 'A subtle difference.'));
+    }
+
+    public function test_a_word_without_analysis_can_be_analysed_on_demand(): void
+    {
+        WordExplainer::fake([WordLookupTest::EXPLANATION])->preventStrayPrompts();
+        $word = UserVocabulary::factory()->create(['word' => 'powering through', 'context' => 'Are people just powering through illness?']);
+
+        $this->actingAs($word->user)
+            ->from('/vocabulary')
+            ->post("/vocabulary/{$word->id}/analyze")
+            ->assertRedirect('/vocabulary');
+
+        $this->assertSame('sobrellevar', $word->fresh()->translation);
+        $this->assertSame('To keep going despite difficulty.', $word->fresh()->analysis['definition']);
+    }
+
+    public function test_a_failed_analysis_tells_the_user_and_keeps_the_word(): void
+    {
+        WordExplainer::fake(fn () => throw new RuntimeException('Provider down'));
+        $word = UserVocabulary::factory()->create();
+
+        $this->actingAs($word->user)
+            ->from('/vocabulary')
+            ->post("/vocabulary/{$word->id}/analyze")
+            ->assertRedirect('/vocabulary')
+            ->assertSessionHasErrors('analysis');
+
+        $this->assertNull($word->fresh()->analysis);
+    }
+
+    public function test_analysing_a_word_twice_does_not_ask_again(): void
+    {
+        WordExplainer::fake()->preventStrayPrompts();
+        $word = UserVocabulary::factory()->create(['translation' => 'matiz', 'analysis' => ['definition' => 'A subtle difference.']]);
+
+        $this->actingAs($word->user)->post("/vocabulary/{$word->id}/analyze")->assertRedirect();
+
+        WordExplainer::assertNeverPrompted();
+    }
+
+    public function test_users_cannot_analyse_someone_elses_words(): void
+    {
+        WordExplainer::fake()->preventStrayPrompts();
+        $word = UserVocabulary::factory()->create();
+
+        $this->actingAs(User::factory()->create())->post("/vocabulary/{$word->id}/analyze")->assertForbidden();
+
+        WordExplainer::assertNeverPrompted();
     }
 
     public function test_guests_are_sent_to_login(): void

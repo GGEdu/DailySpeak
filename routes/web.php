@@ -52,6 +52,10 @@ Route::middleware('auth')->group(function () {
     Route::post('/vocabulary/{vocabulary}/review', [VocabularyController::class, 'review'])
         ->can('update', 'vocabulary')
         ->name('vocabulary.review');
+    Route::post('/vocabulary/{vocabulary}/analyze', [VocabularyController::class, 'analyze'])
+        ->middleware('throttle:lookups')
+        ->can('update', 'vocabulary')
+        ->name('vocabulary.analyze');
     Route::delete('/vocabulary/{vocabulary}', [VocabularyController::class, 'destroy'])
         ->can('delete', 'vocabulary')
         ->name('vocabulary.destroy');
