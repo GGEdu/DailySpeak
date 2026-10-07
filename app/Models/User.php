@@ -65,12 +65,17 @@ class User extends Authenticatable
 
     /**
      * Start a debate about the article, or resume the active one the user already has.
+     *
+     * The partial unique index on debates rejects a second active debate for the same article, so when
+     * a double submit loses the race, createOrFirst() returns the debate that won it.
      */
     public function startDebate(NewsArticle $article): Debate
     {
-        return $this->debates()->firstOrCreate([
+        $active = [
             'news_article_id' => $article->id,
             'status' => DebateStatus::Active,
-        ]);
+        ];
+
+        return $this->debates()->where($active)->first() ?? $this->debates()->createOrFirst($active);
     }
 }
