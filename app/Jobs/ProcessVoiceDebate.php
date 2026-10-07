@@ -87,6 +87,12 @@ class ProcessVoiceDebate implements ShouldQueue
      */
     public function handle(): void
     {
+        // The debate may have been finished while this turn waited in the queue. Its report is already
+        // written, so the turn is dropped: no message is added and no reply is sent.
+        if (! $this->debate->fresh()?->isActive()) {
+            return;
+        }
+
         $startedAt = microtime(true);
 
         [$turn, $sttMs] = Benchmark::value(fn () => $this->userTurn());

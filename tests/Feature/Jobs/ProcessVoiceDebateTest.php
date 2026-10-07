@@ -308,6 +308,25 @@ class ProcessVoiceDebateTest extends TestCase
         Event::assertNotDispatched(DebateTurnFailed::class);
     }
 
+    public function test_a_turn_queued_before_the_debate_was_finished_is_dropped_without_a_reply(): void
+    {
+        // The debate was closed, and its report written, while this turn was waiting in the queue.
+        $this->debate->finish();
+        Transcription::fake([self::USER_SAYS]);
+        DebateTutor::fake([self::TUTOR_SAYS]);
+        Audio::fake([base64_encode('mp3')]);
+
+        ProcessVoiceDebate::dispatch($this->debate, self::RECORDING);
+
+        Transcription::assertNothingGenerated();
+        DebateTutor::assertNeverPrompted();
+        Audio::assertNothingGenerated();
+        $this->assertSame(0, $this->debate->messages()->count());
+        Event::assertNotDispatched(UserTurnTranscribed::class);
+        Event::assertNotDispatched(AIResponseGenerated::class);
+        Event::assertNotDispatched(DebateTurnFailed::class);
+    }
+
     public function test_each_provider_call_uses_its_configured_timeout(): void
     {
         config(['debate.stt.timeout' => 45, 'debate.llm.timeout' => 50, 'debate.tts.timeout' => 40]);
