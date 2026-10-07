@@ -1,3 +1,10 @@
+<script setup>
+defineProps({
+    // Icon only below the sm breakpoint, where the app header also has to fit the navigation.
+    compact: { type: Boolean, default: false },
+});
+</script>
+
 <template>
     <span class="inline-flex items-center gap-2.5">
         <span
@@ -8,6 +15,6 @@
                 <span v-for="(height, index) in [40, 100, 65, 85]" :key="index" class="w-[3px] rounded-full bg-ink-950" :style="{ height: `${height}%` }" />
             </span>
         </span>
-        <span class="text-[15px] font-semibold tracking-tight text-ink-100">DailySpeak</span>
+        <span :class="['text-[15px] font-semibold tracking-tight whitespace-nowrap text-ink-100', compact && 'hidden sm:inline']">DailySpeak</span>
     </span>
 </template>
