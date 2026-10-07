@@ -125,7 +125,12 @@ Inertia + Vue 3 con un diseño oscuro (`resources/js`):
 | `/`               | `pages/Welcome.vue`   | Landing para invitados (los usuarios autenticados van al feed) |
 | `/login`, `/register` | `pages/auth/*`    | Acceso y registro (con el nivel B1/B2/C1) |
 | `/feed`           | `pages/Feed.vue`      | Noticias del día agrupadas por fecha: título, resumen, vocabulario clave y «Debate this» / «Continue debate» |
-| `/debates/{id}`   | `pages/Debate.vue`    | Chat de voz con el tutor |
+| `/debates/{id}`   | `pages/Debate.vue`    | Chat de voz con el tutor; «Finish debate» genera el informe de fluidez (muletillas, errores y vocabulario recomendado) |
+| `/vocabulary`     | `pages/Vocabulary.vue` | Palabras recomendadas en los informes, con repaso espaciado (Leitner: 1, 2, 4, 8 y 16 días) |
+| `/settings`       | `pages/Settings.vue`  | Cambiar el nivel de inglés (también desde la insignia del nivel en la cabecera) |
+| `/admin/sources`  | `pages/admin/Sources.vue` | Fuentes RSS (solo administradores) |
+
+El tutor adapta su inglés al nivel del usuario: frases cortas y vocabulario cotidiano en B1, lenguaje natural con algo de expresiones idiomáticas en B2 y registro nativo en C1 (`debate_tutor_levels` en `config/prompts.php`). Un cambio de nivel se aplica desde el siguiente turno. Los resúmenes de las noticias se generan una sola vez por artículo para nivel C1, como pide la especificación; hacerlos por nivel triplicaría el coste de IA del recolector.
 
 La vista de debate graba con `MediaRecorder` y usa la Web Audio API (`AnalyserNode`) para el visualizador del micrófono y de la respuesta. Muestra el estado **Listening → Thinking → Speaking**, sube cada turno a la API con la sesión del navegador y escucha `AIResponseGenerated` / `DebateTurnFailed` en el canal privado con Echo para reproducir la respuesta automáticamente. Se puede interrumpir al tutor pulsando el micro y usar la barra espaciadora como atajo.
 

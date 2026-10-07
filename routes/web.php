@@ -5,6 +5,7 @@ use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\Auth\RegisteredUserController;
 use App\Http\Controllers\DebateSessionController;
 use App\Http\Controllers\FeedController;
+use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\VocabularyController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -42,6 +43,9 @@ Route::middleware('auth')->group(function () {
     Route::delete('/vocabulary/{vocabulary}', [VocabularyController::class, 'destroy'])
         ->can('delete', 'vocabulary')
         ->name('vocabulary.destroy');
+
+    Route::get('/settings', [SettingsController::class, 'edit'])->name('settings.edit');
+    Route::put('/settings', [SettingsController::class, 'update'])->name('settings.update');
 });
 
 Route::middleware(['auth', 'can:admin'])->prefix('admin')->name('admin.')->group(function () {

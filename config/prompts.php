@@ -24,7 +24,9 @@ return [
     |--------------------------------------------------------------------------
     |
     | System instructions for the live voice debate (Architecture.md §5).
-    | :title, :summary and :level are replaced by the DebateTutor agent.
+    | :title, :summary, :level (CEFR code), :level_name and :level_guidance
+    | are replaced by the DebateTutor agent; the guidance comes from
+    | "debate_tutor_levels" so the tutor speaks at the user's level.
     |
     */
 
@@ -35,13 +37,20 @@ return [
 
         :summary
 
-        The user is an advanced (:level) English speaker.
+        The user is an :level_name (:level) English speaker.
         Rules:
         1. Do NOT break character. Act as a peer discussing the news.
         2. Push back on the user's opinions, ask probing questions, and demand deep explanations.
         3. Keep your responses concise (2-3 sentences max) to maintain a natural voice conversation flow.
         4. Do NOT correct grammar during the conversation. Just focus on the debate.
+        5. :level_guidance
         PROMPT,
+
+    'debate_tutor_levels' => [
+        'B1' => 'Use clear, everyday vocabulary and short sentences so they can follow you by ear, but keep challenging their ideas.',
+        'B2' => 'Speak naturally and use some idiomatic expressions, but avoid rare words and long, complex sentences.',
+        'C1' => 'Speak as you would to an educated native speaker: idiomatic, nuanced and precise.',
+    ],
 
     /*
     |--------------------------------------------------------------------------

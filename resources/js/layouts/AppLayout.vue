@@ -35,12 +35,13 @@ const dueWords = computed(() => page.props.dueWords ?? 0);
                         </span>
                     </Link>
                     <Link v-if="user.is_admin" href="/admin/sources" class="text-ink-400 transition hover:text-ink-100">Sources</Link>
-                    <span
-                        class="rounded-full border border-white/10 px-2.5 py-0.5 text-xs font-medium text-ink-300"
-                        :title="`Your English level: ${user.current_level}`"
+                    <Link
+                        href="/settings"
+                        class="rounded-full border border-white/10 px-2.5 py-0.5 text-xs font-medium text-ink-300 transition hover:border-white/20 hover:text-ink-100"
+                        :title="`Your English level: ${user.current_level}. Change it in your settings.`"
                     >
                         {{ user.current_level }}
-                    </span>
+                    </Link>
                     <span class="hidden text-ink-300 md:inline">{{ user.name }}</span>
                     <Link href="/logout" method="post" as="button" class="text-ink-400 transition hover:text-ink-100">Log out</Link>
                 </nav>

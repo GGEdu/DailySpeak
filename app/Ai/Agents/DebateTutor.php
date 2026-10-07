@@ -5,6 +5,7 @@ namespace App\Ai\Agents;
 use App\Enums\MessageRole;
 use App\Models\Debate;
 use App\Models\DebateMessage;
+use Illuminate\Support\Str;
 use Laravel\Ai\Contracts\Agent;
 use Laravel\Ai\Contracts\Conversational;
 use Laravel\Ai\Contracts\HasProviderOptions;
@@ -35,10 +36,14 @@ class DebateTutor implements Agent, Conversational, HasProviderOptions
      */
     public function instructions(): Stringable|string
     {
+        $level = $this->debate->user->current_level;
+
         return strtr(config('prompts.debate_tutor'), [
             ':title' => $this->debate->newsArticle->title,
             ':summary' => $this->debate->newsArticle->summary,
-            ':level' => $this->debate->user->current_level->value,
+            ':level_name' => Str::lower($level->label()),
+            ':level_guidance' => config("prompts.debate_tutor_levels.{$level->value}"),
+            ':level' => $level->value,
         ]);
     }
 

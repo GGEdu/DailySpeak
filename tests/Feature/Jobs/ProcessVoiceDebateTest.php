@@ -94,7 +94,8 @@ class ProcessVoiceDebateTest extends TestCase
                 && str_contains($instructions, 'You are an expert native English tutor and debate partner.')
                 && str_contains($instructions, 'Title: City approves free public transport')
                 && str_contains($instructions, 'The council voted to scrap bus fares from next year.')
-                && str_contains($instructions, 'The user is an advanced (B2) English speaker.')
+                && str_contains($instructions, 'The user is an upper-intermediate (B2) English speaker.')
+                && str_contains($instructions, '5. Speak naturally and use some idiomatic expressions')
                 && str_contains($instructions, 'Do NOT correct grammar');
         });
 
