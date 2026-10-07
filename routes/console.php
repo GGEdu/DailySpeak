@@ -21,3 +21,6 @@ Schedule::command(PruneVoiceRecordings::class)
     ->dailyAt('04:00')
     ->withoutOverlapping()
     ->onOneServer();
+
+// Horizon's throughput and wait-time graphs are built from these snapshots.
+Schedule::command('horizon:snapshot')->everyFiveMinutes();
