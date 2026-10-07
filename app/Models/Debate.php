@@ -70,4 +70,25 @@ class Debate extends Model
     {
         return $this->hasMany(DebateMessage::class);
     }
+
+    public function isActive(): bool
+    {
+        return $this->status === DebateStatus::Active;
+    }
+
+    /**
+     * Get the private channel route the debate's realtime events are authorised on.
+     */
+    public function broadcastChannelRoute(): string
+    {
+        return 'debates.{debate}';
+    }
+
+    /**
+     * Get the private channel the debate's realtime events are sent to.
+     */
+    public function broadcastChannel(): string
+    {
+        return 'debates.'.$this->getKey();
+    }
 }

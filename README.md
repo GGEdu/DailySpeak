@@ -6,6 +6,7 @@ La especificación técnica completa está en [`Architecture.md`](Architecture.m
 ## Stack
 
 - Laravel 13 (PHP 8.3+) y Laravel AI SDK (`laravel/ai`)
+- Laravel Reverb (WebSockets), Horizon (colas en Redis) y Sanctum (API)
 - PostgreSQL (columnas `jsonb`), Redis, Meilisearch y Mailpit vía Laravel Sail
 
 ## Puesta en marcha (Laravel Sail)
@@ -27,6 +28,8 @@ Servicios expuestos por defecto:
 | Servicio    | URL / puerto            |
 |-------------|-------------------------|
 | App         | http://localhost        |
+| Horizon     | http://localhost/horizon |
+| Reverb (WS) | `ws://localhost:8080`   |
 | PostgreSQL  | `localhost:5432`        |
 | Redis       | `localhost:6379`        |
 | Meilisearch | http://localhost:7700   |
@@ -55,6 +58,30 @@ Configuración (`.env`):
 
 El prompt de resumen está en `config/prompts.php`. Los artículos ya guardados no se vuelven a resumir, y los que no tienen texto suficiente en su página (vídeos, directos) se omiten en lugar de resumirse a partir de la entradilla del RSS.
 
+## Debate por voz (API + WebSockets)
+
+Sail levanta dos servicios extra con la misma imagen de la app: `reverb` (servidor WebSocket) y `horizon` (workers de la cola `debates`). Tras cambiar código PHP, reinicia los workers con `./vendor/bin/sail restart horizon`.
+
+Flujo de un turno:
+
+1. `POST /api/news-articles/{id}/debates` inicia un debate (o reanuda el activo) y devuelve el canal privado (`debates.{id}`).
+2. El cliente se suscribe con Laravel Echo a ese canal (autorización en `/broadcasting/auth`, solo el dueño del debate).
+3. `POST /api/debates/{id}/audio` (multipart, campo `audio`: webm, ogg, m4a, mp4, mp3, wav o flac; máx. 10 MB) guarda la grabación, encola `ProcessVoiceDebate` y responde `202`.
+4. El job transcribe el audio (STT), pide la réplica al agente `DebateTutor` con el historial del debate (LLM), la sintetiza a MP3 (TTS) y guarda ambos mensajes en `debate_messages`.
+5. Se emite `AIResponseGenerated` (`ShouldBroadcastNow`) con `transcript`, `audio_url` (URL firmada válida 60 min) y `user_message`. Si no se oye nada o el turno falla tras reintentar, se emite `DebateTurnFailed` con `reason` = `no_speech` | `processing_failed`.
+
+Las rutas de la API usan Sanctum (`auth:sanctum`): cookie de sesión para la web o token Bearer para otros clientes. Los turnos se procesan de uno en uno por debate y la subida está limitada a 20 por minuto.
+
+| Variable                | Por defecto  | Descripción |
+|-------------------------|--------------|-------------|
+| `DEBATE_STT_PROVIDER` / `DEBATE_STT_MODEL` | `openai` / `whisper-1` | Transcripción (p. ej. `groq` / `whisper-large-v3-turbo`) |
+| `DEBATE_LLM_PROVIDER` / `DEBATE_LLM_MODEL` | `gemini` / por defecto del proveedor | Tutor de debate |
+| `DEBATE_TTS_PROVIDER` / `DEBATE_TTS_MODEL` | `openai` / por defecto del proveedor | Síntesis de voz (p. ej. `eleven`) |
+| `DEBATE_TTS_VOICE`      | `alloy`      | Voz de OpenAI o id de voz de ElevenLabs |
+| `ELEVENLABS_API_KEY` / `GROQ_API_KEY` | — | Solo si se usan esos proveedores |
+
+El system prompt del tutor está en `config/prompts.php` (`debate_tutor`).
+
 ## Tests
 
 Los tests usan la base de datos `testing` del contenedor de PostgreSQL (Sail la crea automáticamente):
@@ -77,5 +104,5 @@ Los tests usan la base de datos `testing` del contenedor de PostgreSQL (Sail la 
 
 - [x] Fase 1: Setup (Sail), migraciones y modelos
 - [x] Fase 2: Ingesta de noticias (News Harvester)
-- [ ] Fase 3: Motor de debate por voz y WebSockets (Reverb + Horizon)
+- [x] Fase 3: Motor de debate por voz y WebSockets (Reverb + Horizon)
 - [ ] Fase 4: Frontend web MVP
