@@ -54,6 +54,18 @@ class SourceUsagePolicyTest extends TestCase
         $this->assertStringContainsString('robots.txt on feeds.example.test says: “Content may not be used to train LLMs without permission.”', $result->note);
     }
 
+    public function test_a_short_no_llm_comment_is_a_warning(): void
+    {
+        Http::fake([
+            'feeds.example.test/robots.txt' => Http::response("# no LLM\nUser-agent: *\nAllow: /\n"),
+        ]);
+
+        $result = $this->assess([]);
+
+        $this->assertSame(SourcePolicyResult::WARNING, $result->status);
+        $this->assertStringContainsString('says: “no LLM”', $result->note);
+    }
+
     public function test_a_comment_about_ai_without_a_prohibition_is_not_a_warning(): void
     {
         Http::fake([
