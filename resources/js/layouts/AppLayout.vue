@@ -1,14 +1,22 @@
 <script setup>
-import { Link, usePage } from '@inertiajs/vue3';
-import { computed } from 'vue';
+import { Link, router, usePage } from '@inertiajs/vue3';
+import { computed, onBeforeUnmount } from 'vue';
 import AppLogo from '../components/AppLogo.vue';
 import SelectionLookup from '../components/SelectionLookup.vue';
+import { clearExplanations } from '../lib/lookup';
 import '../lib/navigation';
 
 const page = usePage();
 const user = computed(() => page.props.auth.user);
 const status = computed(() => page.props.flash?.status);
 const dueWords = computed(() => page.props.dueWords ?? 0);
+
+// Logging out forgets this visit's explanations: the next person on the device gets none of them.
+const stopLogoutListener = router.on('start', (event) => {
+    if (String(event.detail.visit.url).endsWith('/logout')) clearExplanations();
+});
+
+onBeforeUnmount(stopLogoutListener);
 </script>
 
 <template>
