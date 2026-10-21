@@ -1,7 +1,7 @@
 // node --test resources/js/lib/debateTurn.test.js
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { createDebateTurns, REPLY_TIMEOUT_MS, TEXT, uploadTurn } from './debateTurn.js';
+import { createDebateTurns, randomTurnId, REPLY_TIMEOUT_MS, TEXT, uploadTurn } from './debateTurn.js';
 
 function deferred() {
     let resolve;
@@ -60,7 +60,7 @@ const replyEvent = (id, userId, turn) => ({
     turn,
 });
 
-function harness({ messages = [user(10), tutor(11)], duration = 2 } = {}) {
+function harness({ messages = [user(10), tutor(11)], duration = 2, turnIds = ['t1', 't2', 't3'] } = {}) {
     const clock = fakeClock();
     const store = { state: 'idle', notice: null, messages };
     const starts = [];
@@ -100,8 +100,9 @@ function harness({ messages = [user(10), tutor(11)], duration = 2 } = {}) {
         store,
         recorder,
         player,
-        upload: () => {
+        upload: (blob, turn) => {
             const answer = deferred();
+            answer.turn = turn;
             uploads.push(answer);
 
             return answer.promise;
@@ -113,6 +114,7 @@ function harness({ messages = [user(10), tutor(11)], duration = 2 } = {}) {
             return incoming.promise;
         },
         timers: clock,
+        newTurnId: () => turnIds.shift(),
     });
 
     return { store, turns, clock, starts, plays, uploads, reloads, calls };
@@ -256,8 +258,8 @@ test('a late event of a turn that already timed out is not taken for the next tu
     assert.equal(h.plays.length, 0);
 });
 
-test('the first event names the turn when the upload has not answered yet', async () => {
-    const h = harness();
+test('the reply can arrive before the upload has answered: the turn id is known from the start', async () => {
+    const h = harness({ turnIds: ['t9'] });
     await sendTurn(h);
 
     h.turns.onReply(replyEvent(13, 12, 't9'));
@@ -480,10 +482,12 @@ test('uploadTurn sends the same recording again after a dropped connection', asy
         return { status: 'processing', turn: 't1' };
     };
 
-    assert.deepEqual(await uploadTurn('/api/debates/3/audio', new Blob(['audio']), send), { status: 'processing', turn: 't1' });
+    assert.deepEqual(await uploadTurn('/api/debates/3/audio', new Blob(['audio']), 't1', send), { status: 'processing', turn: 't1' });
     assert.equal(bodies.length, 2);
     assert.equal(bodies[0].get('audio').name, 'turn.webm');
     assert.equal(bodies[1].get('audio').size, bodies[0].get('audio').size);
+    // The same id both times: the server stores and answers the turn once.
+    assert.deepEqual([bodies[0].get('turn'), bodies[1].get('turn')], ['t1', 't1']);
 });
 
 test('an answer from the server is final: uploadTurn does not repeat it', async () => {
@@ -494,7 +498,7 @@ test('an answer from the server is final: uploadTurn does not repeat it', async 
         throw Object.assign(new Error('Too many turns today.'), { status: 429 });
     };
 
-    await assert.rejects(uploadTurn('/api/debates/3/audio', new Blob(['audio']), send), { message: 'Too many turns today.' });
+    await assert.rejects(uploadTurn('/api/debates/3/audio', new Blob(['audio']), 't1', send), { message: 'Too many turns today.' });
     assert.equal(calls, 1);
 });
 
@@ -506,6 +510,55 @@ test('two dropped connections end in a plain message about the connection', asyn
         throw new TypeError('Failed to fetch');
     };
 
-    await assert.rejects(uploadTurn('/api/debates/3/audio', new Blob(['audio']), send), { message: TEXT.upload });
+    await assert.rejects(uploadTurn('/api/debates/3/audio', new Blob(['audio']), 't1', send), { message: TEXT.upload });
     assert.equal(calls, 2);
+});
+
+test('a 409 means the first upload of this turn is still being stored: the turn is on its way', async () => {
+    let calls = 0;
+    const send = async () => {
+        calls += 1;
+
+        if (calls === 1) {
+            throw new TypeError('Failed to fetch');
+        }
+
+        throw Object.assign(new Error('This turn is still being received.'), { status: 409 });
+    };
+
+    assert.deepEqual(await uploadTurn('/api/debates/3/audio', new Blob(['audio']), 't1', send), { status: 'processing', turn: 't1' });
+    assert.equal(calls, 2);
+});
+
+test('each turn uploads with its own id, chosen before the upload', async () => {
+    const h = harness();
+    await sendTurn(h);
+
+    assert.equal(h.uploads[0].turn, 't1');
+    h.uploads[0].resolve({ status: 'processing', turn: 't1' });
+    await flush();
+    h.turns.onReply(replyEvent(13, 12, 't1'));
+    await flush();
+    h.plays.at(-1).resolve();
+    await flush();
+
+    await sendTurn(h);
+    assert.equal(h.uploads[1].turn, 't2');
+});
+
+test('a turn sent after the debate ended says so', async () => {
+    const h = harness();
+    await sendTurn(h);
+
+    h.turns.onTurnFailed({ reason: 'debate_ended', turn: 't1' });
+
+    assert.equal(h.store.state, 'idle');
+    assert.deepEqual(h.store.notice, { tone: 'error', text: TEXT.ended });
+});
+
+test('randomTurnId gives a version 4 UUID, with or without crypto.randomUUID', () => {
+    const shape = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+    assert.match(randomTurnId(), shape);
+    assert.match(randomTurnId({ getRandomValues: (bytes) => bytes.fill(255) }), shape);
 });

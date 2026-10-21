@@ -7,9 +7,10 @@ import { addMissing, findTurnMessages, latestId, mergeMessages, upsertMessage, w
  * recorder, player and transport. idle → starting (waiting for the microphone permission) → listening
  * → thinking (uploaded, waiting for the tutor) → speaking → idle.
  *
- * Realtime events name the turn they belong to. The event of the turn being answered drives the state
- * and the audio; events of other turns only add their messages to the transcript. An event without a
- * `turn` (a server that does not name them yet) is taken as the current turn.
+ * Each turn gets its id here, before the upload, and the server keeps it: the 202 and the realtime events
+ * name it, and an upload sent twice with the same id is stored and answered once. The event of the turn
+ * being answered drives the state and the audio; events of other turns only add their messages to the
+ * transcript. An event without a `turn` (a server that does not name them yet) is taken as the current turn.
  */
 
 export const MIN_TURN_SECONDS = 0.6;
@@ -27,21 +28,47 @@ export const TEXT = {
     playback: "The tutor's audio couldn't be played, but you can read the reply above.",
     noSpeech: "We couldn't hear anything in that recording. Try again a little closer to the mic.",
     failed: 'Something went wrong while answering that turn. Please try again.',
+    ended: 'This debate has already finished, so that turn was not answered.',
 };
 
 /**
- * Upload one recording. A request that got no answer (a dropped connection, or the timeout in postForm)
- * is sent once more with the same recording. An answer from the server is final, whatever it says:
- * asking again would pay for the turn twice.
+ * A random UUID for a turn. crypto.randomUUID needs a secure context, so plain getRandomValues backs it up.
  */
-export async function uploadTurn(url, blob, send = postForm) {
+export function randomTurnId(cryptoApi = globalThis.crypto) {
+    if (typeof cryptoApi?.randomUUID === 'function') {
+        return cryptoApi.randomUUID();
+    }
+
+    const bytes = cryptoApi.getRandomValues(new Uint8Array(16));
+    bytes[6] = (bytes[6] & 0x0f) | 0x40; // version 4
+    bytes[8] = (bytes[8] & 0x3f) | 0x80; // RFC 4122 variant
+    const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+/**
+ * Upload one recording. A request that got no answer (a dropped connection, or the timeout in postForm)
+ * is sent once more with the same recording and the same turn id, which the server stores only once, so
+ * a first request that did arrive is not paid twice. A 409 means that first request is still being
+ * stored: the turn is on its way. Any other answer from the server is final.
+ */
+export async function uploadTurn(url, blob, turn = null, send = postForm) {
     for (let attempt = 1; attempt <= MAX_UPLOAD_ATTEMPTS; attempt += 1) {
         const body = new FormData();
         body.append('audio', blob, `turn.${extensionFor(blob.type)}`);
 
+        if (turn) {
+            body.append('turn', turn);
+        }
+
         try {
             return await send(url, body);
         } catch (error) {
+            if (error.status === 409 && turn) {
+                return { status: 'processing', turn };
+            }
+
             if (error.status !== undefined) {
                 throw error;
             }
@@ -58,11 +85,12 @@ export async function uploadTurn(url, blob, send = postForm) {
  *
  * - recorder: { start({ onMaxDuration, onStopped }) → Promise<boolean>, stop(), cancel() } (see useRecorder)
  * - player:   { play(url, id) → Promise, stop() } (see useReplyPlayer)
- * - upload:   (blob) → Promise<{ turn?: string }>
+ * - upload:   (blob, turnId) → Promise<{ turn?: string }>
  * - reload:   () → Promise<messages>, a fresh copy of the transcript from the server
  * - timers:   { setTimeout, clearTimeout }, injectable for tests
+ * - newTurnId: () → string, the id of the next turn (random UUIDs; injectable for tests)
  */
-export function createDebateTurns({ store, recorder, player, upload, reload, timers = globalThis }) {
+export function createDebateTurns({ store, recorder, player, upload, reload, timers = globalThis, newTurnId = randomTurnId }) {
     let current = null; // the turn being answered: { id, baseline, done, timer }
     const retired = new Set(); // ids of turns that are over: their late events belong to nobody
     let speakToken = 0;
@@ -152,7 +180,8 @@ export function createDebateTurns({ store, recorder, player, upload, reload, tim
 
     function onTurnFailed(event) {
         if (claims(event)) {
-            failTurn(pending(), event.reason === 'no_speech' ? TEXT.noSpeech : TEXT.failed);
+            const text = { no_speech: TEXT.noSpeech, debate_ended: TEXT.ended }[event.reason] ?? TEXT.failed;
+            failTurn(pending(), text);
         }
     }
 
@@ -240,14 +269,14 @@ export function createDebateTurns({ store, recorder, player, upload, reload, tim
             return;
         }
 
-        const turn = { id: null, baseline: latestId(store.messages), done: false, timer: null };
+        const turn = { id: newTurnId(), baseline: latestId(store.messages), done: false, timer: null };
         current = turn;
         store.messages = [...store.messages, { id: 'pending', role: 'user', pending: true }];
         // The clock starts before the upload: the server's budget covers the whole turn, not only the answer.
         turn.timer = timers.setTimeout(() => expire(turn), REPLY_TIMEOUT_MS);
 
         try {
-            const response = await upload(recording.blob);
+            const response = await upload(recording.blob, turn.id);
 
             if (!turn.done) {
                 turn.id ??= response?.turn ?? null;

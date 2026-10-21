@@ -14,6 +14,7 @@ import { unlockAudio } from '../lib/audio';
 import { createDebateTurns, uploadTurn } from '../lib/debateTurn';
 import { sameOriginPath } from '../lib/http';
 import { clock, timeAgo } from '../lib/time';
+import { safeHttpUrl } from '../lib/url';
 
 // Realtime is only used on this page, so Echo and Pusher stay out of the entry chunk shared by every page.
 configureEcho({
@@ -52,6 +53,7 @@ const liveLabel = computed(() => (live.value ? 'Live' : subscriptionFailed.value
 const isActive = computed(() => props.debate.status === 'active');
 const isWideScreen = window.matchMedia('(min-width: 1024px)').matches;
 const paragraphs = computed(() => props.article.summary.split(/\n\s*\n/).filter(Boolean));
+const sourceUrl = computed(() => safeHttpUrl(props.article.source_url));
 const uploadPath = sameOriginPath(props.debate.audio_upload_url);
 
 // Fluency report (after "Finish"): pushed by DebateEvaluated, or picked up by polling.
@@ -106,7 +108,7 @@ const turns = createDebateTurns({
     store,
     recorder,
     player,
-    upload: (blob) => uploadTurn(uploadPath, blob),
+    upload: (blob, turn) => uploadTurn(uploadPath, blob, turn),
     reload: reloadMessages,
 });
 
@@ -294,7 +296,8 @@ onBeforeUnmount(() => {
             </Link>
 
             <p class="mt-6 flex items-center gap-2 text-xs text-ink-400">
-                <a :href="article.source_url" target="_blank" rel="noopener" class="font-medium text-ink-300 hover:text-ink-100">{{ article.source }}</a>
+                <a v-if="sourceUrl" :href="sourceUrl" target="_blank" rel="noopener" class="font-medium text-ink-300 hover:text-ink-100">{{ article.source }}</a>
+                <span v-else class="font-medium text-ink-300">{{ article.source }}</span>
                 <span aria-hidden="true">·</span>
                 <time :datetime="article.published_at">{{ timeAgo(article.published_at) }}</time>
             </p>
