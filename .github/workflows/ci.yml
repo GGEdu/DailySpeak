@@ -1,0 +1,102 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: PHP ${{ matrix.php }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # 8.4 is what production runs (Debian 13 packages); 8.5 is the newest release.
+        php: ['8.4', '8.5']
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: dailyspeak_testing
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # Points the tests at the Postgres service above; phpunit.xml pins every other variable.
+      DB_CONNECTION: pgsql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
+      DB_USERNAME: postgres
+      DB_PASSWORD: postgres
+      DB_DATABASE: dailyspeak_testing
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+
+      - name: Set up PHP ${{ matrix.php }}
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: pcntl, pdo_pgsql, pgsql, posix, mbstring, fileinfo, curl, iconv, xml, xmlwriter
+          coverage: none
+
+      - name: Create a throwaway application key
+        # Generated per run and never stored: the tests only need some valid key for encryption.
+        run: echo "APP_KEY=base64:$(php -r 'echo base64_encode(random_bytes(32));')" >> "$GITHUB_ENV"
+
+      - name: Install Composer dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Run PHPUnit
+        run: php vendor/bin/phpunit
+
+      - name: Audit Composer dependencies
+        run: composer audit
+
+  frontend:
+    name: Frontend (Node 24)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      # .npmrc sets ignore-scripts, so installing does not run package install scripts.
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Build the assets
+        run: npm run build
+
+      - name: Run the JavaScript tests
+        run: npm test
+
+      - name: Audit npm dependencies
+        run: npm audit --audit-level=high
