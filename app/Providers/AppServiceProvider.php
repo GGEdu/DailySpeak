@@ -39,10 +39,10 @@ class AppServiceProvider extends ServiceProvider
     public const LOGINS_PER_EMAIL_AND_ADDRESS_PER_MINUTE = 6;
 
     /**
-     * Sign-in attempts for one email per hour from any address, so a list of addresses cannot be
-     * tried against one account.
+     * Failed sign-ins for one email from one address per hour. Only failures count, and the address is part
+     * of the key: counting every email from every address would let anyone who knows the email lock its owner out.
      */
-    public const LOGINS_PER_EMAIL_PER_HOUR = 30;
+    public const FAILED_LOGINS_PER_EMAIL_AND_ADDRESS_PER_HOUR = 30;
 
     /**
      * Register any application services.
@@ -65,12 +65,9 @@ class AppServiceProvider extends ServiceProvider
         // At least 12 characters. The breach list is checked in production only: it calls an outside service.
         Password::defaults(fn () => app()->isProduction() ? Password::min(12)->uncompromised() : Password::min(12));
 
-        RateLimiter::for('login', fn (Request $request) => [
-            Limit::perMinute(self::LOGINS_PER_EMAIL_AND_ADDRESS_PER_MINUTE)
-                ->by('login:'.$this->loginEmail($request).'|'.$request->ip()),
-            Limit::perHour(self::LOGINS_PER_EMAIL_PER_HOUR)
-                ->by('login-email:'.$this->loginEmail($request)),
-        ]);
+        // Every attempt counts here; the failures are counted by the login controller, per email and address.
+        RateLimiter::for('login', fn (Request $request) => Limit::perMinute(self::LOGINS_PER_EMAIL_AND_ADDRESS_PER_MINUTE)
+            ->by('login:'.$this->loginEmail($request).'|'.$request->ip()));
 
         RateLimiter::for('register', fn (Request $request) => Limit::perDay(max(1, (int) config('limits.registrations_per_ip_per_day')))
             ->by('register:'.$request->ip()));
