@@ -27,6 +27,13 @@ class NewsSource extends Model
     ];
 
     /**
+     * Usage-policy results are for admins; hidden so they never reach a page for regular users by accident.
+     *
+     * @var list<string>
+     */
+    protected $hidden = ['policy_status', 'policy_note', 'policy_checked_at'];
+
+    /**
      * Get the attributes that should be cast.
      *
      * @return array<string, string>
@@ -36,6 +43,7 @@ class NewsSource extends Model
         return [
             'is_active' => 'boolean',
             'last_fetched_at' => 'datetime',
+            'policy_checked_at' => 'datetime',
         ];
     }
 
