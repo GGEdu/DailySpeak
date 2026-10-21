@@ -3,6 +3,7 @@
 namespace Tests\Feature\Ai;
 
 use App\Ai\Agents\DebateEvaluator;
+use App\Enums\EnglishLevel;
 use Tests\TestCase;
 
 class DebateEvaluatorTest extends TestCase
@@ -16,7 +17,7 @@ class DebateEvaluatorTest extends TestCase
             'debate.evaluator.model' => null,
         ]);
 
-        $evaluator = new DebateEvaluator;
+        $evaluator = new DebateEvaluator(EnglishLevel::B2);
 
         $this->assertSame('openai-compatible', $evaluator->provider());
         $this->assertSame('chat', $evaluator->model());
@@ -31,7 +32,7 @@ class DebateEvaluatorTest extends TestCase
             'debate.evaluator.model' => 'general',
         ]);
 
-        $evaluator = new DebateEvaluator;
+        $evaluator = new DebateEvaluator(EnglishLevel::B2);
 
         $this->assertSame('openai-compatible', $evaluator->provider());
         $this->assertSame('general', $evaluator->model());
@@ -46,9 +47,19 @@ class DebateEvaluatorTest extends TestCase
             'debate.evaluator.model' => null,
         ]);
 
-        $evaluator = new DebateEvaluator;
+        $evaluator = new DebateEvaluator(EnglishLevel::B2);
 
         $this->assertSame('gemini', $evaluator->provider());
         $this->assertNull($evaluator->model());
+    }
+
+    public function test_it_is_told_the_learners_level_and_how_many_words_to_recommend(): void
+    {
+        $instructions = (string) (new DebateEvaluator(EnglishLevel::B2))->instructions();
+
+        $this->assertStringContainsString('The learner is at upper-intermediate (B2) level.', $instructions);
+        $this->assertStringContainsString('Provide '.DebateEvaluator::RECOMMENDED_WORDS.' specific vocabulary words', $instructions);
+        $this->assertStringNotContainsString(':recommended_words', $instructions);
+        $this->assertStringNotContainsString('C1-level', $instructions);
     }
 }

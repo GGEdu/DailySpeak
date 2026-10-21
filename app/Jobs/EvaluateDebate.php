@@ -7,14 +7,19 @@ use App\Enums\MessageRole;
 use App\Events\DebateEvaluated;
 use App\Events\DebateEvaluationFailed;
 use App\Models\Debate;
+use App\Services\Vocabulary\WordLookup;
 use DateTimeInterface;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Throwable;
+use UnexpectedValueException;
 
 /**
  * Post-session fluency analysis (Architecture.md, flow C): feedback on the user's
@@ -37,6 +42,16 @@ class EvaluateDebate implements ShouldBeUnique, ShouldQueue
         'is', 'are', 'was', 'were', 'be', 'been', 'am', 'do', 'does', 'did', 'have', 'has', 'had', 'will', 'would',
         'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me', 'my', 'your', 'our', 'their', 'this', 'that', 'these', 'those',
     ];
+
+    /**
+     * Longest word kept from the answer. Matches the limit on words saved by the user (SaveWordController).
+     */
+    private const MAX_WORD_CHARACTERS = 200;
+
+    /**
+     * How long a model answer is kept for a retry of the same transcript (the retry window is 10 minutes).
+     */
+    private const ANSWER_CACHE_MINUTES = 15;
 
     /**
      * Seconds the job can run. The evaluator's timeout (config/debate.php, evaluator.timeout) must stay below this.
@@ -75,7 +90,7 @@ class EvaluateDebate implements ShouldBeUnique, ShouldQueue
     public function middleware(): array
     {
         // Runs after any voice turn that is still being answered (same lock as ProcessVoiceDebate).
-        return [(new WithoutOverlapping($this->debate->jobLockKey()))->shared()->releaseAfter(3)->expireAfter(180)];
+        return [(new WithoutOverlapping($this->debate->jobLockKey()))->shared()->releaseAfter(1)->expireAfter(180)];
     }
 
     public function retryUntil(): DateTimeInterface
@@ -96,11 +111,7 @@ class EvaluateDebate implements ShouldBeUnique, ShouldQueue
             return;
         }
 
-        $turns = $this->debate->messages()
-            ->where('role', MessageRole::User)
-            ->orderBy('id')
-            ->pluck('transcript');
-
+        $turns = $this->recentTurns();
         $feedback = $turns->isEmpty() ? self::EMPTY_FEEDBACK : $this->evaluate($turns);
 
         // The words and the report are saved together: if either fails, both roll back, so a retry starts
@@ -113,6 +124,12 @@ class EvaluateDebate implements ShouldBeUnique, ShouldQueue
             return $added;
         });
 
+        Log::info('Debate evaluated.', [
+            'debate_id' => $this->debate->getKey(),
+            'turns' => $turns->count(),
+            'words_added' => count($addedWords),
+        ]);
+
         // The report is stored; a broadcasting outage must not trigger a second evaluation.
         rescue(fn () => DebateEvaluated::dispatch($this->debate, $addedWords));
     }
@@ -122,11 +139,51 @@ class EvaluateDebate implements ShouldBeUnique, ShouldQueue
      */
     public function failed(?Throwable $exception): void
     {
+        Log::error('Debate evaluation failed.', [
+            'debate_id' => $this->debate->getKey(),
+            'exception' => $exception === null ? null : $exception::class,
+        ]);
+
         rescue(fn () => DebateEvaluationFailed::dispatch($this->debate));
     }
 
     /**
-     * Ask the evaluator for feedback and keep only well-formed entries.
+     * The learner's latest turns, oldest first, within the evaluator's turn and character limits. A turn is kept
+     * whole, except that a single turn longer than the limit is cut to it.
+     *
+     * @return Collection<int, string>
+     */
+    private function recentTurns(): Collection
+    {
+        $limit = (int) config('debate.evaluator.max_characters');
+
+        $latest = $this->debate->messages()
+            ->where('role', MessageRole::User)
+            ->latest('id')
+            ->limit((int) config('debate.evaluator.max_turns'))
+            ->pluck('transcript');
+
+        $kept = [];
+        $characters = 0;
+
+        foreach ($latest as $transcript) {
+            $length = mb_strlen($transcript);
+
+            if ($kept !== [] && $characters + $length > $limit) {
+                break;
+            }
+
+            $kept[] = mb_substr($transcript, 0, $limit);
+            $characters += $length;
+        }
+
+        return collect(array_reverse($kept))->values();
+    }
+
+    /**
+     * Ask the evaluator for feedback and keep only well-formed entries. The answer is cached for the retry window,
+     * so a retry after a failed save reuses it instead of paying for the model again. An answer with nothing
+     * usable throws and is not cached, so the retry asks again.
      *
      * @param  Collection<int, string>  $turns
      * @return array{crutch_words: list<string>, grammar_errors: list<array{error: string, correction: string}>, recommended_vocabulary: list<array{word: string, context: string}>}
@@ -135,28 +192,56 @@ class EvaluateDebate implements ShouldBeUnique, ShouldQueue
     {
         $transcript = $turns->map(fn (string $turn, int $index) => ($index + 1).'. '.$turn)->implode("\n");
 
-        $response = DebateEvaluator::make()->prompt(
-            "Debate topic: {$this->debate->newsArticle->title}\n\nLearner's turns:\n{$transcript}"
-        );
+        return Cache::remember(
+            'debate-evaluation:'.$this->debate->getKey().':'.sha1($transcript),
+            now()->addMinutes(self::ANSWER_CACHE_MINUTES),
+            function () use ($transcript) {
+                $feedback = $this->clean(
+                    (new DebateEvaluator($this->debate->user->current_level))->prompt(
+                        "Debate topic: {$this->debate->newsArticle->title}\n\nLearner's turns:\n{$transcript}"
+                    )
+                );
 
+                if ($feedback['crutch_words'] === [] && $feedback['grammar_errors'] === [] && $feedback['recommended_vocabulary'] === []) {
+                    throw new UnexpectedValueException('The evaluator returned no usable feedback.');
+                }
+
+                return $feedback;
+            },
+        );
+    }
+
+    /**
+     * Keep only the well-formed entries of the model's answer, within the limits.
+     *
+     * @param  \ArrayAccess<string, mixed>|array<string, mixed>  $response
+     * @return array{crutch_words: list<string>, grammar_errors: list<array{error: string, correction: string}>, recommended_vocabulary: list<array{word: string, context: string}>}
+     */
+    private function clean($response): array
+    {
         return [
             'crutch_words' => collect($response['crutch_words'] ?? [])
                 ->filter(fn ($word) => is_string($word) && trim($word) !== '')
                 ->map(fn (string $word) => trim($word))
                 ->reject(fn (string $word) => in_array(mb_strtolower($word), self::FUNCTION_WORDS, true))
                 ->unique(fn (string $word) => mb_strtolower($word))
-                ->take(8)
+                ->take(DebateEvaluator::MAX_CRUTCH_WORDS)
                 ->values()
                 ->all(),
             'grammar_errors' => collect($response['grammar_errors'] ?? [])
-                ->filter(fn ($item) => is_array($item) && filled($item['error'] ?? null) && filled($item['correction'] ?? null))
+                ->filter(fn ($item) => is_array($item) && is_string($item['error'] ?? null) && is_string($item['correction'] ?? null))
                 ->map(fn (array $item) => ['error' => trim($item['error']), 'correction' => trim($item['correction'])])
-                ->take(10)
+                ->filter(fn (array $item) => $item['error'] !== '' && $item['correction'] !== '')
+                ->take(DebateEvaluator::MAX_GRAMMAR_ERRORS)
                 ->values()
                 ->all(),
             'recommended_vocabulary' => collect($response['recommended_vocabulary'] ?? [])
-                ->filter(fn ($item) => is_array($item) && filled($item['word'] ?? null) && filled($item['context'] ?? null))
-                ->map(fn (array $item) => ['word' => trim($item['word']), 'context' => trim($item['context'])])
+                ->filter(fn ($item) => is_array($item) && is_string($item['word'] ?? null) && is_string($item['context'] ?? null))
+                ->map(fn (array $item) => [
+                    'word' => Str::limit(WordLookup::normalise($item['word']), self::MAX_WORD_CHARACTERS, ''),
+                    'context' => trim($item['context']),
+                ])
+                ->filter(fn (array $item) => $item['word'] !== '' && $item['context'] !== '')
                 ->unique(fn (array $item) => mb_strtolower($item['word']))
                 ->take(DebateEvaluator::RECOMMENDED_WORDS)
                 ->values()
@@ -175,8 +260,10 @@ class EvaluateDebate implements ShouldBeUnique, ShouldQueue
         $added = [];
 
         foreach ($recommended as ['word' => $word, 'context' => $context]) {
-            $entry = $this->debate->user->vocabularies()->firstOrCreate(
-                ['word' => mb_strtolower(trim($word))],
+            // The same form SaveWordController stores, so a word saved by hand and one recommended match.
+            // createOrFirst, not firstOrCreate: a concurrent save of the same word must not abort this transaction.
+            $entry = $this->debate->user->vocabularies()->createOrFirst(
+                ['word' => mb_strtolower($word)],
                 ['context' => $context, 'next_review_at' => now()],
             );
 
