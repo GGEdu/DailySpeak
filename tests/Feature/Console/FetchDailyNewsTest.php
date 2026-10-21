@@ -66,7 +66,7 @@ class FetchDailyNewsTest extends TestCase
         $this->assertDatabaseHas('news_articles', ['source_url' => self::GENES_URL]);
 
         NewsSummarizer::assertPromptedTimes(2);
-        NewsSummarizer::assertPrompted(fn (AgentPrompt $prompt) => str_starts_with($prompt->prompt, 'Title: City council approves')
+        NewsSummarizer::assertPrompted(fn (AgentPrompt $prompt) => str_starts_with($prompt->prompt, "<article_text>\nTitle: City council approves")
             && str_contains($prompt->prompt, 'Mayor José Núñez said the reform')
             && ! str_contains($prompt->prompt, 'Commuters queue'));
     }
