@@ -56,15 +56,57 @@ class ArticleTextExtractorTest extends TestCase
         Http::preventStrayRequests();
         Http::fake([
             'news.example.test/ok' => Http::response(file_get_contents(base_path('tests/Fixtures/news/article.html'))),
-            'news.example.test/missing' => Http::response('Not found', 404),
-            'news.example.test/down' => Http::failedConnection(),
         ]);
 
         $extractor = app(ArticleTextExtractor::class);
 
-        $this->assertStringStartsWith('The city council', $extractor->extract('https://news.example.test/ok'));
-        $this->assertNull($extractor->extract('https://news.example.test/missing'));
-        $this->assertNull($extractor->extract('https://news.example.test/down'));
+        $this->assertStringStartsWith('The city council', $extractor->fromHtml($extractor->download('https://news.example.test/ok')));
+    }
+
+    public function test_bullet_points_of_the_body_are_kept_but_related_teasers_are_not(): void
+    {
+        $html = '<html><body><article>'
+            .'<p>First paragraph of the story.</p><p>Second paragraph of the story.</p>'
+            .'<ul><li><p>Bullet with a paragraph.</p></li><li>Bullet with plain text.</li><li><a href="/x">Related headline</a></li></ul>'
+            .'<p>Last paragraph.</p></article></body></html>';
+
+        $text = app(ArticleTextExtractor::class)->fromHtml($html);
+
+        $this->assertStringContainsString('Bullet with a paragraph.', $text);
+        $this->assertStringContainsString('Bullet with plain text.', $text);
+        $this->assertStringNotContainsString('Related headline', $text);
+    }
+
+    public function test_the_article_with_the_most_text_is_used_not_the_first_one(): void
+    {
+        // A live page has one <article> per post; the first one is a short intro.
+        $html = '<html><body>'
+            .'<article><p>Live post one, a short intro.</p></article>'
+            .'<article><p>'.str_repeat('The real report continues here. ', 10).'</p><p>More report text.</p><p>Even more report text.</p></article>'
+            .'</body></html>';
+
+        $this->assertStringStartsWith('The real report continues here.', app(ArticleTextExtractor::class)->fromHtml($html));
+    }
+
+    public function test_the_json_ld_article_body_is_used_when_it_has_more_text_than_the_markup(): void
+    {
+        $body = "The full text of the story is only in the structured data, which has enough words.\n\nSecond paragraph.\n\nThird paragraph.";
+        $html = '<html><head><script type="application/ld+json">'
+            .json_encode(['@context' => 'https://schema.org', '@type' => 'NewsArticle', 'articleBody' => $body], JSON_THROW_ON_ERROR)
+            .'</script></head><body><article><p>Short teaser.</p></article></body></html>';
+
+        $this->assertSame($body, app(ArticleTextExtractor::class)->fromHtml($html));
+    }
+
+    public function test_a_cut_text_never_ends_in_half_a_word(): void
+    {
+        config(['news.max_article_characters' => 22]);
+
+        $text = app(ArticleTextExtractor::class)->fromHtml(
+            '<html><body><main><p>Alpha beta gamma delta epsilon</p><p>Second.</p><p>Third.</p></main></body></html>'
+        );
+
+        $this->assertSame('Alpha beta gamma', $text);
     }
 
     public function test_download_reports_failures_instead_of_hiding_them(): void
