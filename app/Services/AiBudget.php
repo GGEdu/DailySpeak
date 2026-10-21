@@ -39,4 +39,15 @@ class AiBudget
 
         return $taken === true;
     }
+
+    /**
+     * Take one call from the budget, or throw AiBudgetUsedUp. For a paid call that only happens on a cache miss:
+     * pass this as the callback that runs right before it, so an answer from the cache costs nothing.
+     */
+    public function spendOrFail(?User $user): void
+    {
+        if (! $this->spend($user)) {
+            throw new AiBudgetUsedUp;
+        }
+    }
 }

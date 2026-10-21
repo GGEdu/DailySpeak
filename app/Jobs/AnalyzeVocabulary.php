@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Models\UserVocabulary;
 use App\Services\Vocabulary\WordLookup;
+use Closure;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -52,11 +53,12 @@ class AnalyzeVocabulary implements ShouldBeUnique, ShouldQueue
     }
 
     /**
-     * Look the word up in its saved sentence, at its owner's level, and keep the result.
+     * Look the word up in its saved sentence, at its owner's level, and keep the result. $beforeAsking runs only
+     * when the AI is called (see WordLookup::explain()).
      */
-    public static function store(UserVocabulary $word, WordLookup $lookup): void
+    public static function store(UserVocabulary $word, WordLookup $lookup, ?Closure $beforeAsking = null): void
     {
-        $explanation = $lookup->explain($word->word, $word->context, $word->user->current_level);
+        $explanation = $lookup->explain($word->word, $word->context, $word->user->current_level, $beforeAsking);
 
         $word->update([
             'translation' => $explanation['translation'],

@@ -66,6 +66,20 @@ class AiDailyBudgetTest extends TestCase
         $this->postJson('/api/lookups', ['text' => 'lapse'])->assertStatus(429);
     }
 
+    public function test_a_translation_answered_from_the_cache_takes_nothing_from_the_budget(): void
+    {
+        config(['limits.ai_daily_global' => 1]);
+        WordExplainer::fake([WordLookupTest::EXPLANATION])->preventStrayPrompts();
+        Sanctum::actingAs(User::factory()->create());
+
+        $this->postJson('/api/lookups', ['text' => 'nuance', 'context' => 'A nuance of meaning.'])->assertOk();
+        // Same selection in the same sentence: the cached answer, so the budget still has nothing left to take.
+        $this->postJson('/api/lookups', ['text' => 'nuance', 'context' => 'A nuance of meaning.'])->assertOk();
+        $this->postJson('/api/lookups', ['text' => 'lapse'])->assertStatus(429);
+
+        WordExplainer::assertPromptedTimes(1);
+    }
+
     public function test_a_repeated_upload_of_a_turn_is_answered_without_taking_the_budget(): void
     {
         config(['limits.ai_daily_global' => 1]);

@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Jobs\AnalyzeVocabulary;
 use App\Models\UserVocabulary;
 use App\Services\AiBudget;
+use App\Services\AiBudgetUsedUp;
 use App\Services\Vocabulary\WordLookup;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Http\RedirectResponse;
@@ -149,13 +150,12 @@ class VocabularyController extends Controller
             return back();
         }
 
-        // Explaining the word is the paid call: it is taken from the budget first, and the page is told when it is gone.
-        if (! $budget->spend($request->user())) {
-            return back()->withErrors(['analysis' => AiBudget::USED_UP_MESSAGE]);
-        }
-
+        // Explaining the word is the paid call, taken from the budget only when the AI is asked (not for a cached
+        // explanation); the page is told when the budget is gone.
         try {
-            AnalyzeVocabulary::store($vocabulary, $lookup);
+            AnalyzeVocabulary::store($vocabulary, $lookup, fn () => $budget->spendOrFail($request->user()));
+        } catch (AiBudgetUsedUp) {
+            return back()->withErrors(['analysis' => AiBudget::USED_UP_MESSAGE]);
         } catch (Throwable $e) {
             report($e);
 

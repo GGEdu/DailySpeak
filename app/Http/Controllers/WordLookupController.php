@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Rules\VocabularySelection;
 use App\Services\AiBudget;
+use App\Services\AiBudgetUsedUp;
 use App\Services\Vocabulary\WordLookup;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -21,15 +22,18 @@ class WordLookupController extends Controller
             'context' => ['nullable', 'string', 'max:2000'],
         ]);
 
-        // The lookup may call the AI, so the call is taken from the budget first. A refused request costs nothing.
-        if (! $budget->spend($request->user())) {
-            return response()->json(['message' => AiBudget::USED_UP_MESSAGE], 429);
-        }
-
         $text = WordLookup::normalise($data['text']);
 
+        // The call is taken from the budget only when the AI is asked: a refused request or a cached answer costs nothing.
         try {
-            $explanation = $lookup->explain($text, $data['context'] ?? null, $request->user()->current_level);
+            $explanation = $lookup->explain(
+                $text,
+                $data['context'] ?? null,
+                $request->user()->current_level,
+                fn () => $budget->spendOrFail($request->user()),
+            );
+        } catch (AiBudgetUsedUp) {
+            return response()->json(['message' => AiBudget::USED_UP_MESSAGE], 429);
         } catch (Throwable $e) {
             report($e);
 
