@@ -262,30 +262,52 @@ class FetchDailyNewsTest extends TestCase
 
     public function test_it_gives_up_after_three_downloads_per_wanted_article(): void
     {
-        $videos = array_map(fn (int $i) => "https://www.bbc.co.uk/news/videos/clip{$i}", range(1, 10));
-        $this->fakeFeed([...$videos, 'https://www.bbc.co.uk/news/articles/late']);
+        $blank = array_map(fn (int $i) => "https://www.bbc.co.uk/news/articles/blank{$i}", range(1, 10));
+        $this->fakeFeed([...$blank, 'https://www.bbc.co.uk/news/articles/late'], $this->blankPages());
         $this->fakeSummaries();
 
         $this->artisan('news:fetch', ['--limit' => 1])
             ->expectsOutputToContain('Saved 0, skipped 3, failed 0.')
             ->assertSuccessful();
 
-        $this->assertCount(3, $this->recordedRequestsTo('/news/videos/'));
+        $this->assertCount(3, $this->recordedRequestsTo('/news/articles/blank'));
         $this->assertSame(0, NewsArticle::count());
     }
 
     public function test_items_without_text_are_not_downloaded_again_for_a_week(): void
     {
-        $this->fakeFeed(['https://www.bbc.co.uk/news/videos/clip1', 'https://www.bbc.co.uk/news/articles/first']);
+        $this->fakeFeed(['https://www.bbc.co.uk/news/articles/blank1', 'https://www.bbc.co.uk/news/articles/first'], $this->blankPages());
         $this->fakeSummaries();
 
         $this->artisan('news:fetch', ['--limit' => 1])->assertSuccessful();
         $this->artisan('news:fetch', ['--limit' => 1])->assertSuccessful();
-        $this->assertCount(1, $this->recordedRequestsTo('/news/videos/'));
+        $this->assertCount(1, $this->recordedRequestsTo('/news/articles/blank1'));
 
         $this->travel(8)->days();
         $this->artisan('news:fetch', ['--limit' => 1])->assertSuccessful();
-        $this->assertCount(2, $this->recordedRequestsTo('/news/videos/'));
+        $this->assertCount(2, $this->recordedRequestsTo('/news/articles/blank1'));
+    }
+
+    public function test_video_live_audio_and_podcast_pages_are_never_downloaded(): void
+    {
+        $this->fakeFeed([
+            'https://www.bbc.co.uk/news/videos/clip1',
+            'https://www.bbc.co.uk/news/live/blog1',
+            'https://www.bbc.co.uk/news/audio/show1',
+            'https://www.bbc.co.uk/news/podcasts/episode1',
+            'https://www.bbc.co.uk/news/articles/first',
+        ]);
+        $this->fakeSummaries();
+
+        $this->artisan('news:fetch', ['--limit' => 5])
+            ->expectsOutputToContain('Saved 1, skipped 4, failed 0.')
+            ->assertSuccessful();
+
+        $this->assertSame([], $this->recordedRequestsTo('/news/videos/'));
+        $this->assertSame([], $this->recordedRequestsTo('/news/live/'));
+        $this->assertSame([], $this->recordedRequestsTo('/news/audio/'));
+        $this->assertSame([], $this->recordedRequestsTo('/news/podcasts/'));
+        NewsSummarizer::assertPromptedTimes(1);
     }
 
     public function test_download_failures_are_retried_the_next_day(): void
@@ -371,6 +393,16 @@ class FetchDailyNewsTest extends TestCase
             'www.bbc.co.uk/news/articles/*' => Http::response(file_get_contents(base_path('tests/Fixtures/news/article.html'))),
             'www.bbc.co.uk/news/videos/*' => Http::response('<html><body><main><video src="clip.mp4"></video></main></body></html>'),
         ]);
+    }
+
+    /**
+     * Article-looking pages that have no text, so they are downloaded and then skipped.
+     *
+     * @return array<string, mixed>
+     */
+    private function blankPages(): array
+    {
+        return ['www.bbc.co.uk/news/articles/blank*' => Http::response('<html><body><main><p>Play</p></main></body></html>')];
     }
 
     /**

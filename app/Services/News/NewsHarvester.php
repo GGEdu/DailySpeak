@@ -29,6 +29,12 @@ class NewsHarvester
 
     public const FAILED = 'failed';
 
+    /**
+     * Paths of pages that are never articles (video, live blogs, audio, podcasts). Checked before
+     * downloading, so they cost no request and no LLM call.
+     */
+    private const NON_ARTICLE_PATH = '#/(videos?|live|audio|podcasts?)(/|$)#i';
+
     public function __construct(
         private readonly RssFeedReader $reader,
         private readonly ArticleTextExtractor $extractor,
@@ -76,6 +82,13 @@ class NewsHarvester
             if ($until !== null && now()->greaterThanOrEqualTo($until)) {
                 $outOfTime = true;
                 break;
+            }
+
+            if ($this->isNotAnArticleUrl($item->url)) {
+                $skipped++;
+                $this->notify($onItem, $item->title, self::SKIPPED, 'not an article (by its URL)');
+
+                continue;
             }
 
             if (Cache::has($this->skipKey($item->url))) {
@@ -196,6 +209,11 @@ class NewsHarvester
         };
 
         $source->update(['last_error' => $error === null ? null : Str::limit($error, 1000)]);
+    }
+
+    private function isNotAnArticleUrl(string $url): bool
+    {
+        return preg_match(self::NON_ARTICLE_PATH, (string) parse_url($url, PHP_URL_PATH)) === 1;
     }
 
     private function notify(?Closure $onItem, string $title, string $status, ?string $detail): void
