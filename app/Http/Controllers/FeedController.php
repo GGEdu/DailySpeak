@@ -79,11 +79,13 @@ class FeedController extends Controller
     private function latest(?string $category): Collection
     {
         return NewsArticle::query()
-            ->when($category, fn ($query) => $query->whereHas(
-                'newsSource',
-                fn ($source) => $source->where('category', $category),
+            ->when($category, fn ($query) => $query->whereIn(
+                'news_source_id',
+                // The ids of the category's sources: cheaper than checking every article's source.
+                NewsSource::query()->where('category', $category)->pluck('id'),
             ))
             ->latest('published_at')
+            ->latest('id')
             ->limit(self::ARTICLES)
             ->get();
     }
@@ -151,6 +153,7 @@ class FeedController extends Controller
                     ->whereLike('title', $pattern)
                     ->orWhereLike('summary', $pattern))
                 ->latest('published_at')
+                ->latest('id')
                 ->limit(self::ARTICLES)
                 ->get(),
         );
