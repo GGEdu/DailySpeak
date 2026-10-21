@@ -1,5 +1,6 @@
 <?php
 
+use App\Console\Commands\CheckNewsSourcePolicies;
 use App\Console\Commands\FetchDailyNews;
 use App\Console\Commands\PruneVoiceRecordings;
 use Illuminate\Console\Scheduling\Event;
@@ -88,6 +89,14 @@ $monitored(
     Schedule::command('queue:prune-failed --hours=168')->dailyAt('04:30'),
     'queue:prune-failed',
     overlapMinutes: 30,
+);
+
+// Mondays 05:00 Madrid. Re-reads each source's robots.txt and known terms for the admin panel notes.
+// At most a few requests per source, each capped at 15 s, and no AI call.
+$monitored(
+    Schedule::command(CheckNewsSourcePolicies::class)->weeklyOn(1, '05:00')->onOneServer(),
+    'news:check-policies',
+    overlapMinutes: 60,
 );
 
 // Heartbeat: cron runs schedule:run every minute, so this check goes down if the scheduler stops.

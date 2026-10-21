@@ -13,7 +13,7 @@ use Tests\TestCase;
 
 class ScheduleTest extends TestCase
 {
-    private const TASKS = ['news:fetch', 'debates:prune-recordings', 'horizon:snapshot', 'queue:prune-failed'];
+    private const TASKS = ['news:fetch', 'debates:prune-recordings', 'horizon:snapshot', 'queue:prune-failed', 'news:check-policies'];
 
     /**
      * @return array<string, array{0: string, 1: string, 2: int, 3: string}>
@@ -25,6 +25,7 @@ class ScheduleTest extends TestCase
             'debates:prune-recordings' => ['debates:prune-recordings', '0 4 * * *', 60, 'schedule-debates-prune-recordings.log'],
             'horizon:snapshot' => ['horizon:snapshot', '*/5 * * * *', 5, 'schedule-horizon-snapshot.log'],
             'queue:prune-failed' => ['queue:prune-failed --hours=168', '30 4 * * *', 30, 'schedule-queue-prune-failed.log'],
+            'news:check-policies' => ['news:check-policies', '0 5 * * 1', 60, 'schedule-news-check-policies.log'],
         ];
     }
 
@@ -85,6 +86,7 @@ class ScheduleTest extends TestCase
                 'https://hc-ping.com/debates-prune-recordings/start', 'https://hc-ping.com/debates-prune-recordings', 'https://hc-ping.com/debates-prune-recordings/fail',
                 'https://hc-ping.com/horizon-snapshot/start', 'https://hc-ping.com/horizon-snapshot', 'https://hc-ping.com/horizon-snapshot/fail',
                 'https://hc-ping.com/queue-prune-failed/start', 'https://hc-ping.com/queue-prune-failed', 'https://hc-ping.com/queue-prune-failed/fail',
+                'https://hc-ping.com/news-check-policies/start', 'https://hc-ping.com/news-check-policies', 'https://hc-ping.com/news-check-policies/fail',
             ],
             collect(Http::recorded())->map(fn (array $pair) => $pair[0]->url())->all(),
         );

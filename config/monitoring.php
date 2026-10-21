@@ -37,6 +37,7 @@ return [
             'debates:prune-recordings' => env('HEALTHCHECKS_PRUNE_RECORDINGS_URL'),
             'horizon:snapshot' => env('HEALTHCHECKS_HORIZON_SNAPSHOT_URL'),
             'queue:prune-failed' => env('HEALTHCHECKS_PRUNE_FAILED_URL'),
+            'news:check-policies' => env('HEALTHCHECKS_CHECK_POLICIES_URL'),
         ],
     ],
 
