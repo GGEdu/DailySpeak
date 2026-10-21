@@ -116,8 +116,10 @@ class RssFeedReaderTest extends TestCase
         Http::preventStrayRequests();
         Http::fake(['feeds.example.test/*' => Http::response('', 503)]);
 
-        $this->expectException(RequestException::class);
+        $this->assertThrows(fn () => app(RssFeedReader::class)->read('https://feeds.example.test/world.xml'), RequestException::class);
 
-        app(RssFeedReader::class)->read('https://feeds.example.test/world.xml');
+        // The first attempt and the two retries; the waits grow between them.
+        Http::assertSentCount(3);
+        Sleep::assertSequence([Sleep::for(500)->milliseconds(), Sleep::for(1000)->milliseconds()]);
     }
 }

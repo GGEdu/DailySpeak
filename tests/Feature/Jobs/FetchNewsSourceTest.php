@@ -9,6 +9,7 @@ use App\Models\NewsSource;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Sleep;
 use RuntimeException;
 use Tests\TestCase;
@@ -52,10 +53,17 @@ class FetchNewsSourceTest extends TestCase
 
     public function test_a_second_fetch_of_the_same_source_is_not_queued_while_one_is_pending(): void
     {
-        $job = new FetchNewsSource(7);
+        $this->assertInstanceOf(ShouldBeUnique::class, new FetchNewsSource(7));
 
-        $this->assertInstanceOf(ShouldBeUnique::class, $job);
-        $this->assertSame('7', $job->uniqueId());
+        // The lock is taken when the job is dispatched, so two clicks queue one job; another source is not affected.
+        Queue::fake();
+
+        FetchNewsSource::dispatch(7);
+        FetchNewsSource::dispatch(7);
+        FetchNewsSource::dispatch(8);
+
+        Queue::assertPushed(FetchNewsSource::class, 2);
+        Queue::assertPushed(FetchNewsSource::class, fn (FetchNewsSource $job) => $job->sourceId === 8);
     }
 
     public function test_it_harvests_the_source_even_when_it_is_paused(): void
