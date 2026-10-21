@@ -12,6 +12,10 @@
 |
 */
 
+// A blank, zero or invalid number of days is null: "not set", so the replies keep the recordings' period. (int) would
+// turn a blank into 0, and the replies would then be deleted a day after they were made.
+$optionalDays = fn (string $key): ?int => filter_var(env($key), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) ?: null;
+
 return [
 
     /*
@@ -24,7 +28,7 @@ return [
     |
     */
 
-    'replies_retention_days' => env('PRIVACY_REPLIES_RETENTION_DAYS'),
+    'replies_retention_days' => $optionalDays('PRIVACY_REPLIES_RETENTION_DAYS'),
 
     /*
     |--------------------------------------------------------------------------

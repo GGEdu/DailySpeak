@@ -89,6 +89,33 @@ class PruneVoiceRecordingsTest extends TestCase
         $disk->assertExists($reply->audio_path);
     }
 
+    public function test_a_blank_replies_retention_in_the_environment_keeps_replies_for_the_recordings_period(): void
+    {
+        $disk = Storage::fake('local');
+        // Nothing is overridden here: phpunit.xml leaves PRIVACY_REPLIES_RETENTION_DAYS blank, and the replies must
+        // then keep the recordings' period (7 days), not a day.
+        $debate = Debate::factory()->create();
+        $young = DebateMessage::factory()->for($debate)->fromAssistant()->create([
+            'audio_path' => "debates/{$debate->id}/replies/young.mp3",
+            'created_at' => now()->subDays(3),
+        ]);
+        $old = DebateMessage::factory()->for($debate)->fromAssistant()->create([
+            'audio_path' => "debates/{$debate->id}/replies/old.mp3",
+            'created_at' => now()->subDays(10),
+        ]);
+        $disk->put($young->audio_path, 'tutor voice');
+        $disk->put($old->audio_path, 'tutor voice');
+
+        $this->artisan('debates:prune-recordings')
+            ->expectsOutputToContain('Deleted 1 tutor reply older than 7 days.')
+            ->assertSuccessful();
+
+        $this->assertNotNull($young->fresh()->audio_path);
+        $disk->assertExists($young->audio_path);
+        $this->assertNull($old->fresh()->audio_path);
+        $disk->assertMissing($old->audio_path);
+    }
+
     public function test_a_retention_of_zero_or_empty_still_keeps_recordings_for_a_day(): void
     {
         $disk = Storage::fake('local');

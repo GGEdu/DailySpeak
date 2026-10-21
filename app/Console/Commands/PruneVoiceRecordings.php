@@ -34,7 +34,9 @@ class PruneVoiceRecordings extends Command
         $disk = Storage::disk(config('debate.audio.disk'));
         // Never less than a day: a zero or empty setting must not delete recordings that are still being processed.
         $recordingDays = max(1, (int) config('debate.audio.retention_days'));
-        $replyDays = max(1, (int) (config('privacy.replies_retention_days') ?? $recordingDays));
+        // Empty means the same as the recordings, whatever the source of the setting: (int) would read it as 0.
+        $repliesSetting = config('privacy.replies_retention_days');
+        $replyDays = blank($repliesSetting) ? $recordingDays : max(1, (int) $repliesSetting);
         $transcriptDays = (int) config('privacy.transcripts_retention_days');
         $recordingsCutoff = now()->subDays($recordingDays);
         $repliesCutoff = now()->subDays($replyDays);
