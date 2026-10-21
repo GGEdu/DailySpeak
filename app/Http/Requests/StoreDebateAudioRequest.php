@@ -28,7 +28,9 @@ class StoreDebateAudioRequest extends FormRequest
         return [
             'audio' => [
                 'required',
+                // At least 1 KB: an empty upload would still be sent to the speech-to-text provider and paid for.
                 File::types(array_keys(config('debate.audio.formats')))
+                    ->min(1)
                     ->max(config('debate.audio.max_upload_kilobytes')),
             ],
         ];

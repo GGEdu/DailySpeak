@@ -53,6 +53,7 @@ class AIResponseGenerated implements ShouldBroadcastNow
                 'id' => $this->turn->id,
                 'transcript' => $this->turn->transcript,
             ],
+            'turn' => $this->turn->turnId(),
         ];
     }
 }

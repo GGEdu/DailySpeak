@@ -42,6 +42,7 @@ class UserTurnTranscribed implements ShouldBroadcastNow
             'debate_id' => $this->turn->debate_id,
             'message_id' => $this->turn->id,
             'transcript' => $this->turn->transcript,
+            'turn' => $this->turn->turnId(),
         ];
     }
 }

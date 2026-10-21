@@ -28,11 +28,19 @@ class DebateTurnFailed implements ShouldBroadcastNow
     public const PROCESSING_FAILED = 'processing_failed';
 
     /**
+     * The debate was finished while the turn was still waiting in the queue, so nothing was answered.
+     */
+    public const DEBATE_ENDED = 'debate_ended';
+
+    /**
      * Create a new event instance.
+     *
+     * @param  ?string  $turn  The voice turn that failed (its recording's name); null when it is not one turn.
      */
     public function __construct(
         public Debate $debate,
         public string $reason,
+        public ?string $turn = null,
     ) {}
 
     /**
@@ -57,6 +65,7 @@ class DebateTurnFailed implements ShouldBroadcastNow
         return [
             'debate_id' => $this->debate->id,
             'reason' => $this->reason,
+            'turn' => $this->turn,
         ];
     }
 }

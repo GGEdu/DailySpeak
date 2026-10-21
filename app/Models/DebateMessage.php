@@ -8,16 +8,17 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Facades\Storage;
 
-#[Fillable(['debate_id', 'role', 'transcript', 'audio_path'])]
+#[Fillable(['debate_id', 'role', 'transcript', 'audio_path', 'reply_to_id'])]
 class DebateMessage extends Model
 {
     /** @use HasFactory<DebateMessageFactory> */
     use HasFactory;
 
     /**
-     * Messages are append-only, so only created_at is tracked.
+     * Messages are not edited, so only created_at is tracked. A turn that gets no reply is deleted.
      */
     public const UPDATED_AT = null;
 
@@ -39,6 +40,25 @@ class DebateMessage extends Model
     public function debate(): BelongsTo
     {
         return $this->belongsTo(Debate::class);
+    }
+
+    /**
+     * The tutor's reply to this user turn, if one was stored. The unique index allows one per turn.
+     *
+     * @return HasOne<DebateMessage, $this>
+     */
+    public function reply(): HasOne
+    {
+        return $this->hasOne(DebateMessage::class, 'reply_to_id');
+    }
+
+    /**
+     * The voice turn a user message belongs to: its recording's name without the extension. The client gets the
+     * same id in the 202 response, so it can match the events to the turn it is waiting for.
+     */
+    public function turnId(): ?string
+    {
+        return $this->audio_path === null ? null : pathinfo($this->audio_path, PATHINFO_FILENAME);
     }
 
     /**

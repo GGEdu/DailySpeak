@@ -43,6 +43,7 @@ class DebateBroadcastingTest extends TestCase
         $this->assertSame($reply->id, $payload['message_id']);
         $this->assertSame('Compared to what?', $payload['transcript']);
         $this->assertSame(['id' => $turn->id, 'transcript' => 'Taxes are too high.'], $payload['user_message']);
+        $this->assertSame(pathinfo($turn->audio_path, PATHINFO_FILENAME), $payload['turn']);
 
         // A short-lived signed URL to the private recording, playable by the browser.
         $this->assertStringContainsString('signature=', $payload['audio_url']);
@@ -58,7 +59,12 @@ class DebateBroadcastingTest extends TestCase
 
         $this->assertInstanceOf(ShouldBroadcastNow::class, $event);
         $this->assertEquals([new PrivateChannel("debates.{$turn->debate_id}")], $event->broadcastOn());
-        $this->assertSame(['debate_id' => $turn->debate_id, 'message_id' => $turn->id, 'transcript' => 'Taxes are too high.'], $event->broadcastWith());
+        $this->assertSame([
+            'debate_id' => $turn->debate_id,
+            'message_id' => $turn->id,
+            'transcript' => 'Taxes are too high.',
+            'turn' => pathinfo($turn->audio_path, PATHINFO_FILENAME),
+        ], $event->broadcastWith());
     }
 
     public function test_turn_failures_are_broadcast_on_the_debate_channel(): void
@@ -69,7 +75,16 @@ class DebateBroadcastingTest extends TestCase
 
         $this->assertInstanceOf(ShouldBroadcastNow::class, $event);
         $this->assertEquals([new PrivateChannel("debates.{$debate->id}")], $event->broadcastOn());
-        $this->assertSame(['debate_id' => $debate->id, 'reason' => 'no_speech'], $event->broadcastWith());
+        $this->assertSame(['debate_id' => $debate->id, 'reason' => 'no_speech', 'turn' => null], $event->broadcastWith());
+    }
+
+    public function test_a_failure_of_one_turn_names_that_turn(): void
+    {
+        $debate = Debate::factory()->create();
+
+        $event = new DebateTurnFailed($debate, DebateTurnFailed::DEBATE_ENDED, 'b1f0c2e4-turn');
+
+        $this->assertSame(['debate_id' => $debate->id, 'reason' => 'debate_ended', 'turn' => 'b1f0c2e4-turn'], $event->broadcastWith());
     }
 
     public function test_only_the_owner_can_join_the_debate_channel(): void

@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Providers\AppServiceProvider;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\File;
 use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
@@ -37,14 +38,15 @@ class DebateAudioUploadTest extends TestCase
     {
         Sanctum::actingAs($this->user);
 
-        $this->post($this->url(), ['audio' => UploadedFile::fake()->create('turn.webm', 120, 'audio/webm')])
-            ->assertAccepted()
-            ->assertExactJson(['status' => 'processing']);
+        $response = $this->post($this->url(), ['audio' => UploadedFile::fake()->create('turn.webm', 120, 'audio/webm')])
+            ->assertAccepted();
 
         $files = Storage::disk('local')->files("debates/{$this->debate->id}/recordings");
         $this->assertCount(1, $files);
         // "audio/webm" is guessed as "weba", which Whisper rejects, so it is stored as ".webm".
         $this->assertStringEndsWith('.webm', $files[0]);
+        // The turn id is the recording's name, so the client can match the events to this turn.
+        $response->assertExactJson(['status' => 'processing', 'turn' => pathinfo($files[0], PATHINFO_FILENAME)]);
 
         Queue::assertPushedOn('debates', ProcessVoiceDebate::class, fn (ProcessVoiceDebate $job) => $job->debate->is($this->debate)
             && $job->audioPath === $files[0]
@@ -71,6 +73,35 @@ class DebateAudioUploadTest extends TestCase
         $this->postJson($this->url(), ['audio' => UploadedFile::fake()->create('notes.txt', 10, 'text/plain')])
             ->assertJsonValidationErrors('audio');
         $this->postJson($this->url(), ['audio' => UploadedFile::fake()->create('long.webm', $maxKilobytes + 1, 'audio/webm')])
+            ->assertJsonValidationErrors('audio');
+
+        Queue::assertNothingPushed();
+    }
+
+    public function test_an_empty_recording_is_rejected_before_it_is_queued(): void
+    {
+        Sanctum::actingAs($this->user);
+
+        // An empty upload would still be sent to the speech-to-text provider, and paid for.
+        $this->postJson($this->url(), ['audio' => UploadedFile::fake()->create('turn.webm', 0, 'audio/webm')])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('audio');
+
+        Queue::assertNothingPushed();
+        $this->assertSame([], Storage::disk('local')->files("debates/{$this->debate->id}/recordings"));
+    }
+
+    public function test_a_text_file_renamed_to_webm_is_rejected(): void
+    {
+        Sanctum::actingAs($this->user);
+        // A real file with real text in it, not a generated fake: the check looks at the content.
+        $path = storage_path('framework/testing/renamed-note.txt');
+        File::ensureDirectoryExists(dirname($path));
+        file_put_contents($path, str_repeat("This is a note, not a recording.\n", 40));
+        $this->beforeApplicationDestroyed(fn () => File::delete($path));
+
+        $this->postJson($this->url(), ['audio' => new UploadedFile($path, 'turn.webm', 'audio/webm', null, true)])
+            ->assertUnprocessable()
             ->assertJsonValidationErrors('audio');
 
         Queue::assertNothingPushed();
