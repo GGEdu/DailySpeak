@@ -4,6 +4,7 @@ namespace Tests\Feature\Web;
 
 use App\Models\User;
 use Illuminate\Auth\Events\PasswordReset;
+use Illuminate\Auth\Middleware\RedirectIfAuthenticated;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Event;
@@ -115,5 +116,30 @@ class PasswordResetTest extends TestCase
         $reset('second-new-password')->assertSessionHasErrors('email');
 
         $this->assertTrue(Hash::check('first-new-password', $user->fresh()->password));
+    }
+
+    public function test_a_password_reset_signs_out_a_session_that_was_already_open(): void
+    {
+        Notification::fake();
+        $user = User::factory()->create(['email' => 'ana@example.com']);
+        $this->post('/login', ['email' => $user->email, 'password' => 'password'])->assertRedirect('/feed');
+        $this->get('/feed')->assertOk();
+
+        // The reset pages are for guests; the flow runs as the signed-in session that stays open.
+        $this->withoutMiddleware(RedirectIfAuthenticated::class);
+        $this->post('/forgot-password', ['email' => $user->email]);
+        $token = Notification::sent($user, ResetPassword::class)->sole()->token;
+
+        $this->post('/reset-password', [
+            'token' => $token,
+            'email' => $user->email,
+            'password' => 'a-brand-new-password',
+            'password_confirmation' => 'a-brand-new-password',
+        ])->assertRedirect('/login');
+
+        // A new request starts with no user in memory, as it would in production.
+        $this->app['auth']->forgetGuards();
+        $this->get('/feed')->assertRedirect('/login');
+        $this->assertGuest();
     }
 }

@@ -51,6 +51,9 @@ class AuthenticatedSessionController extends Controller
         $request->session()->invalidate();
         $request->session()->regenerateToken();
 
+        // The next page forgets the key of the encrypted history, so "Back" cannot show the last account.
+        Inertia::clearHistory();
+
         return to_route('home');
     }
 }
