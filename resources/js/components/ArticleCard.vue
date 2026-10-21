@@ -1,6 +1,7 @@
 <script setup>
 import { Link } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
+import { safeHttpUrl } from '../lib/url';
 import { timeAgo } from '../lib/time';
 import VocabularyChips from './VocabularyChips.vue';
 
@@ -12,12 +13,15 @@ const props = defineProps({
 
 const expanded = ref(false);
 const paragraphs = computed(() => props.article.summary.split(/\n\s*\n/).filter(Boolean));
+// Checked here too: the server validates it, but a javascript: address must never become a link.
+const sourceUrl = computed(() => safeHttpUrl(props.article.source_url));
 </script>
 
 <template>
     <article class="group rounded-2xl border border-white/8 bg-ink-900/60 p-6 transition hover:border-white/15 sm:p-7">
         <div class="flex items-center gap-2 text-xs text-ink-400">
-            <a :href="article.source_url" target="_blank" rel="noopener" class="font-medium text-ink-300 hover:text-ink-100">{{ article.source }}</a>
+            <a v-if="sourceUrl" :href="sourceUrl" target="_blank" rel="noopener" class="inline-flex min-h-6 items-center font-medium text-ink-300 hover:text-ink-100">{{ article.source }}</a>
+            <span v-else class="font-medium text-ink-300">{{ article.source }}</span>
             <span v-if="article.category_label" class="rounded-full border border-white/10 px-2 py-0.5 text-[11px] font-medium text-ink-400">{{
                 article.category_label
             }}</span>
@@ -33,7 +37,7 @@ const paragraphs = computed(() => props.article.summary.split(/\n\s*\n/).filter(
         <button
             v-if="paragraphs.length > 1"
             type="button"
-            class="mt-2 text-sm font-medium text-ink-400 transition hover:text-ink-100"
+            class="mt-2 inline-flex min-h-6 items-center text-sm font-medium text-ink-400 transition hover:text-ink-100"
             :aria-expanded="expanded"
             @click="expanded = !expanded"
         >
@@ -50,7 +54,7 @@ const paragraphs = computed(() => props.article.summary.split(/\n\s*\n/).filter(
                 <Link
                     v-if="finishedDebateId && !activeDebateId"
                     :href="`/debates/${finishedDebateId}`"
-                    class="text-sm font-medium text-ink-400 underline-offset-4 transition hover:text-ink-100 hover:underline"
+                    class="inline-flex min-h-6 items-center text-sm font-medium text-ink-400 underline-offset-4 transition hover:text-ink-100 hover:underline"
                 >
                     View report
                 </Link>
