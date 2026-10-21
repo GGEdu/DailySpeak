@@ -1,6 +1,7 @@
 <script setup>
 import { Head, Link } from '@inertiajs/vue3';
 import AppLogo from '../components/AppLogo.vue';
+import '../lib/navigation';
 
 const features = [
     {
@@ -22,6 +23,7 @@ const features = [
     <Head title="Stop studying English" />
 
     <div class="relative min-h-screen overflow-hidden">
+        <a href="#content" class="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:rounded-lg focus:bg-ink-100 focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-ink-950">Skip to content</a>
         <div
             class="pointer-events-none absolute inset-x-0 top-0 h-[640px] bg-[radial-gradient(55%_55%_at_50%_0%,color-mix(in_oklab,var(--color-thinking)_22%,transparent),transparent)]"
             aria-hidden="true"
@@ -37,7 +39,7 @@ const features = [
             </nav>
         </header>
 
-        <main class="relative mx-auto max-w-6xl px-5 pt-16 pb-24 sm:px-8 sm:pt-24">
+        <main id="content" tabindex="-1" class="relative mx-auto max-w-6xl px-5 pt-16 pb-24 outline-none sm:px-8 sm:pt-24">
             <div class="mx-auto max-w-3xl text-center">
                 <p class="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-xs font-medium text-ink-300">
                     <span class="size-1.5 rounded-full bg-speaking shadow-[0_0_10px_var(--color-speaking)]" />

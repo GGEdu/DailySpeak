@@ -11,8 +11,8 @@ defineProps({
         <li v-for="word in words" :key="word">
             <button
                 type="button"
-                class="rounded-md border border-thinking/20 bg-thinking/[0.07] px-2 py-0.5 text-xs font-medium text-[color-mix(in_oklab,var(--color-thinking)_70%,white)] transition hover:border-thinking/45 hover:bg-thinking/15"
-                :aria-label="`What does “${word}” mean?`"
+                class="inline-flex min-h-6 items-center rounded-md border border-thinking/20 bg-thinking/[0.07] px-2 py-1 text-xs font-medium text-[color-mix(in_oklab,var(--color-thinking)_70%,white)] transition hover:border-thinking/45 hover:bg-thinking/15"
+                :aria-label="`Meaning of “${word}”`"
                 @click="openLookup(word, null, $event.currentTarget)"
             >
                 {{ word }}

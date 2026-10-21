@@ -20,7 +20,7 @@ const id = useId();
             v-model="model"
             v-bind="$attrs"
             class="mt-1.5 block w-full rounded-lg border bg-ink-950/60 px-3 py-2.5 text-sm text-ink-100 placeholder-ink-500 transition outline-none focus:ring-2"
-            :class="error ? 'border-listening/60 focus:ring-listening/30' : 'border-white/10 focus:border-speaking/60 focus:ring-speaking/20'"
+            :class="error ? 'border-listening/60 focus:ring-listening/60' : 'border-white/10 focus:border-speaking/60 focus:ring-speaking/60'"
             :aria-invalid="Boolean(error)"
             :aria-describedby="error ? `${id}-error` : undefined"
         />

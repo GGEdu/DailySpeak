@@ -7,8 +7,9 @@ export const MAX_CONTEXT = 500;
 
 const EDGES = /^[\s.,;:!?"'“”‘’()[\]{}«»—–-]+|[\s.,;:!?"'“”‘’()[\]{}«»—–-]+$/gu;
 
-// Common abbreviations whose full stop does not end a sentence.
-const ABBREVIATION = /(?:^|[\s(“"'])(?:Mr|Mrs|Ms|Dr|Prof|St|Mt|Sr|Jr|Gen|Gov|Sen|Rep|Inc|Ltd|Co|Corp|vs|etc|approx|No|e\.g|i\.e|[A-Z](?:\.[A-Z])+)\.$/;
+// Common abbreviations whose full stop does not end a sentence: titles, initials ("J. Smith", "U.S.")
+// and the time of day ("5 p.m.").
+const ABBREVIATION = /(?:^|[\s(“"'])(?:Mr|Mrs|Ms|Dr|Prof|St|Mt|Sr|Jr|Gen|Gov|Sen|Rep|Inc|Ltd|Co|Corp|vs|etc|approx|No|e\.g|i\.e|[aApP]\.[mM]|[A-Z](?:\.[A-Z])*)\.$/;
 
 /**
  * Trim spaces and the punctuation a double-click or a sloppy drag picks up.

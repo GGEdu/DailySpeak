@@ -53,3 +53,9 @@ test('long text without punctuation is cut around the selection', () => {
     assert.ok(sentence.length <= 500);
     assert.ok(sentence.includes('target'));
 });
+
+test('initials and a.m./p.m. do not end a sentence', () => {
+    assert.equal(context('The author J. Smith wrote it. It sold well.', 'wrote'), 'The author J. Smith wrote it.');
+    assert.equal(context('The train leaves at 5 p.m. Tomorrow it is late.', 'late'), 'The train leaves at 5 p.m. Tomorrow it is late.');
+    assert.equal(context('Doors open at 9 a.m. Everyone rushes in.', 'rushes'), 'Doors open at 9 a.m. Everyone rushes in.');
+});

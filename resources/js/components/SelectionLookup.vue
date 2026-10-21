@@ -19,6 +19,8 @@ let request = null;
 let timer = null;
 let frame = null;
 let mouseDown = false;
+// Whether the current press began in selectable text: only such a press can end in a selection.
+let pressedInText = false;
 // The element that had the focus when the panel opened; Escape returns the focus there.
 let returnFocusTo = null;
 
@@ -37,14 +39,17 @@ function check(delay) {
 function onPointerDown(event) {
     noteInput('pointer');
     mouseDown = event.pointerType === 'mouse';
+    pressedInText = event.target instanceof Element && event.target.closest('[data-selectable]') !== null;
     if (activeLookup.value && !panel.value?.contains(event.target)) closeLookup();
 }
 
-// Only a release inside selectable text can have made a selection: releasing on a button
-// (e.g. a vocabulary chip) must not reopen whatever text is still selected elsewhere.
+// A drag that began in the text may end anywhere (below the paragraph, outside the block):
+// selectedVocabulary() decides whether what is selected counts. A press on a chip never reopens
+// text that is still selected elsewhere.
 function onPointerUp(event) {
     mouseDown = false;
-    if (event.target instanceof Element && event.target.closest('[data-selectable]')) check(event.pointerType === 'mouse' ? 0 : 600);
+    if (pressedInText) check(event.pointerType === 'mouse' ? 0 : 600);
+    pressedInText = false;
 }
 
 // Touch and keyboard selections; a mouse drag still in progress waits for the release.
@@ -63,14 +68,33 @@ function onKeydown(event) {
     if (hadFocus && origin?.isConnected) origin.focus();
 }
 
+// The part of the screen that shows the target. A chat that scrolls inside the page clips what it
+// scrolls past, so the box that clips it counts as well as the viewport.
+function visibleBand(target) {
+    let element = target.commonAncestorContainer ?? target;
+    element = element.nodeType === Node.ELEMENT_NODE ? element : element.parentElement;
+
+    for (; element; element = element.parentElement) {
+        if (/auto|scroll|hidden|clip/.test(getComputedStyle(element).overflowY)) {
+            const box = element.getBoundingClientRect();
+
+            return { top: Math.max(0, box.top), bottom: Math.min(window.innerHeight, box.bottom) };
+        }
+    }
+
+    return { top: 0, bottom: window.innerHeight };
+}
+
 // Below the selection by default: on phones the browser's own copy/share menu sits above it.
-// Recomputed from the live selection, so it follows the text when the page or the chat scrolls.
+// Recomputed from the live selection, so it follows the text when the page or the chat scrolls,
+// and closes when the text scrolls out of sight.
 function place() {
     const target = activeLookup.value?.target;
     if (!target) return;
 
     const rect = target.getBoundingClientRect();
-    if (rect.bottom < 0 || rect.top > window.innerHeight || (rect.width === 0 && rect.height === 0)) {
+    const band = visibleBand(target);
+    if (rect.bottom < band.top || rect.top > band.bottom || (rect.width === 0 && rect.height === 0)) {
         closeLookup();
         return;
     }
@@ -184,7 +208,7 @@ onBeforeUnmount(() => {
             role="dialog"
             tabindex="-1"
             :aria-label="`Meaning of “${activeLookup.text}”`"
-            class="fixed z-50 rounded-2xl border border-white/10 bg-ink-850 p-4 text-left shadow-2xl ring-1 shadow-black/60 ring-black/40 outline-none"
+            class="fixed z-50 max-h-[min(70vh,28rem)] overflow-y-auto overscroll-contain rounded-2xl border border-white/10 bg-ink-850 p-4 text-left shadow-2xl ring-1 shadow-black/60 ring-black/40 outline-none"
             :style="{ top: `${position.top}px`, left: `${position.left}px`, width: `${position.width}px` }"
         >
             <div class="flex items-start justify-between gap-3">
@@ -213,14 +237,14 @@ onBeforeUnmount(() => {
             <div aria-live="polite">
                 <p v-if="status === 'loading'" class="mt-3 flex items-center gap-2 text-sm text-ink-300">
                     <span class="flex gap-1" aria-hidden="true">
-                        <span v-for="dot in 3" :key="dot" class="size-1.5 animate-pulse rounded-full bg-thinking" :style="{ animationDelay: `${dot * 150}ms` }" />
+                        <span v-for="dot in 3" :key="dot" class="size-1.5 animate-pulse rounded-full bg-thinking motion-reduce:animate-none" :style="{ animationDelay: `${dot * 150}ms` }" />
                     </span>
                     Translating…
                 </p>
 
                 <div v-else-if="status === 'error'" class="mt-3 text-sm">
                     <p class="text-listening">{{ error }}</p>
-                    <button type="button" class="mt-2 font-medium text-ink-300 underline-offset-4 hover:text-ink-100 hover:underline" @click="lookUp(activeLookup)">Try again</button>
+                    <button type="button" class="mt-2 inline-flex min-h-6 items-center font-medium text-ink-300 underline-offset-4 hover:text-ink-100 hover:underline" @click="lookUp(activeLookup)">Try again</button>
                 </div>
 
                 <div v-else-if="explanation" class="mt-2">

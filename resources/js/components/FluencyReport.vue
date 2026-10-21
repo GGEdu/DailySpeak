@@ -29,12 +29,12 @@ const isEmpty = computed(
         <!-- Waiting for EvaluateDebate -->
         <div v-if="!feedback && !failed" class="mt-5 flex items-center gap-3 rounded-2xl border border-thinking/20 bg-thinking/[0.06] p-5" role="status">
             <span class="flex gap-1.5" aria-hidden="true">
-                <span v-for="dot in 3" :key="dot" class="size-2 animate-bounce rounded-full bg-thinking" :style="{ animationDelay: `${dot * 120}ms` }" />
+                <span v-for="dot in 3" :key="dot" class="size-2 animate-bounce rounded-full bg-thinking motion-reduce:animate-none" :style="{ animationDelay: `${dot * 120}ms` }" />
             </span>
             <p class="text-sm text-ink-200">Analysing your side of the debate…</p>
         </div>
 
-        <div v-else-if="failed" class="mt-5 rounded-2xl border border-listening/25 bg-listening/10 p-5" role="status">
+        <div v-else-if="failed" class="mt-5 rounded-2xl border border-listening/25 bg-listening/10 p-5" role="alert">
             <p class="text-sm text-listening">We couldn't analyse this debate right now.</p>
             <button type="button" class="mt-3 rounded-lg bg-ink-100 px-3.5 py-2 text-sm font-semibold text-ink-950 transition hover:bg-white" @click="$emit('retry')">
                 Try again
@@ -59,7 +59,7 @@ const isEmpty = computed(
                         <p class="mt-1 text-sm text-ink-300 italic" data-selectable>“{{ item.context }}”</p>
                     </li>
                 </ul>
-                <Link href="/vocabulary" class="mt-4 inline-block text-sm font-medium text-ink-300 underline-offset-4 hover:text-ink-100 hover:underline">
+                <Link href="/vocabulary" class="mt-4 inline-flex min-h-6 items-center text-sm font-medium text-ink-300 underline-offset-4 hover:text-ink-100 hover:underline">
                     Review your words →
                 </Link>
             </section>
@@ -68,7 +68,7 @@ const isEmpty = computed(
                 <h3 class="text-xs font-semibold tracking-wide text-ink-400 uppercase">Say it like a native</h3>
                 <ul class="mt-3 space-y-3 text-sm">
                     <li v-for="(item, index) in feedback.grammar_errors" :key="index">
-                        <p class="text-ink-400 line-through decoration-listening/60">{{ item.error }}</p>
+                        <p class="text-ink-400 line-through decoration-listening/60"><span class="sr-only">Instead of: </span>{{ item.error }}</p>
                         <p class="mt-0.5 text-ink-100" data-selectable>{{ item.correction }}</p>
                     </li>
                 </ul>

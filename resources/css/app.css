@@ -14,7 +14,8 @@
     --color-ink-800: #181b23;
     --color-ink-700: #242833;
     --color-ink-600: #353a47;
-    --color-ink-500: #555c6b;
+    /* Text in this tone must reach 4.5:1 on ink-950 and on ink-900/60 cards (WCAG 1.4.3). */
+    --color-ink-500: #7a8192;
     --color-ink-400: #868d9c;
     --color-ink-300: #b2b7c2;
     --color-ink-200: #d5d8de;
@@ -48,6 +49,12 @@
     button:not(:disabled),
     [role='button']:not(:disabled) {
         cursor: pointer;
+    }
+
+    /* One visible focus style for every control: the speaking cyan is 11:1 on ink-950 (WCAG 2.4.7, 1.4.11). */
+    :focus-visible {
+        outline: 2px solid var(--color-speaking);
+        outline-offset: 2px;
     }
 }
 
