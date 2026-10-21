@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\DebateStatus;
 use App\Enums\EnglishLevel;
+use App\Notifications\QueuedVerifyEmail;
 use Database\Factories\UserFactory;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -45,6 +46,14 @@ class User extends Authenticatable implements MustVerifyEmail
             'current_level' => EnglishLevel::class,
             'is_admin' => 'boolean',
         ];
+    }
+
+    /**
+     * Sent through the queue, so an outage of the mail server does not fail the sign-up.
+     */
+    public function sendEmailVerificationNotification(): void
+    {
+        $this->notify(new QueuedVerifyEmail);
     }
 
     /**

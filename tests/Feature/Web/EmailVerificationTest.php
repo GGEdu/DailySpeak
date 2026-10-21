@@ -4,9 +4,12 @@ namespace Tests\Feature\Web;
 
 use App\Enums\EnglishLevel;
 use App\Models\User;
+use App\Notifications\QueuedVerifyEmail;
 use Illuminate\Auth\Notifications\VerifyEmail;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Notifications\SendQueuedNotifications;
 use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\URL;
 use Inertia\Testing\AssertableInertia as Assert;
 use Laravel\Sanctum\Sanctum;
@@ -28,7 +31,22 @@ class EmailVerificationTest extends TestCase
             'current_level' => EnglishLevel::B2->value,
         ])->assertRedirect('/email/verify');
 
-        Notification::assertSentTo(User::where('email', 'ana@example.com')->sole(), VerifyEmail::class);
+        Notification::assertSentTo(User::where('email', 'ana@example.com')->sole(), QueuedVerifyEmail::class);
+    }
+
+    public function test_the_verification_email_is_queued_so_a_mail_outage_does_not_break_sign_up(): void
+    {
+        Queue::fake();
+
+        $this->post('/register', [
+            'name' => 'Ana',
+            'email' => 'ana@example.com',
+            'password' => 'a-long-password',
+            'password_confirmation' => 'a-long-password',
+            'current_level' => EnglishLevel::B2->value,
+        ])->assertRedirect('/email/verify');
+
+        Queue::assertPushed(SendQueuedNotifications::class, fn (SendQueuedNotifications $job) => $job->notification instanceof VerifyEmail);
     }
 
     public function test_unverified_users_cannot_use_the_app_until_they_verify(): void
@@ -78,7 +96,7 @@ class EmailVerificationTest extends TestCase
 
         $this->actingAs($user)->from('/email/verify')->post('/email/verification-notification')->assertRedirect('/email/verify');
 
-        Notification::assertSentTo($user, VerifyEmail::class);
+        Notification::assertSentTo($user, QueuedVerifyEmail::class);
     }
 
     public function test_verified_users_skip_the_verification_page(): void
