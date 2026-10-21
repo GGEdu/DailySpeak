@@ -129,6 +129,18 @@ class DebateAudioUploadTest extends TestCase
         Queue::assertNothingPushed();
     }
 
+    public function test_unverified_users_cannot_speak(): void
+    {
+        $unverified = User::factory()->unverified()->create();
+        $debate = Debate::factory()->for($unverified)->create();
+        Sanctum::actingAs($unverified);
+
+        $this->postJson("/api/debates/{$debate->id}/audio", ['audio' => UploadedFile::fake()->create('turn.webm', 10, 'audio/webm')])
+            ->assertForbidden();
+
+        Queue::assertNothingPushed();
+    }
+
     public function test_guests_cannot_upload_recordings(): void
     {
         $this->postJson($this->url(), ['audio' => UploadedFile::fake()->create('turn.webm', 10, 'audio/webm')])
