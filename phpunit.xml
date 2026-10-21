@@ -58,6 +58,9 @@
         <env name="NEWS_ALLOW_PRIVATE_HOSTS" value="false"/>
         <env name="REDIS_QUEUE_RETRY_AFTER" value="180"/>
         <env name="DB_QUEUE_RETRY_AFTER" value="180"/>
+        <env name="VITE_REVERB_HOST" value=""/>
+        <env name="VITE_REVERB_PORT" value=""/>
+        <env name="VITE_REVERB_SCHEME" value=""/>
         <env name="DEBATE_QUEUE" value="debates"/>
         <env name="DEBATE_AUDIO_DISK" value="local"/>
         <env name="DEBATE_AUDIO_RETENTION_DAYS" value="7"/>

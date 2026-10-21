@@ -42,11 +42,29 @@ class SecurityHeadersTest extends TestCase
 
     public function test_the_socket_host_of_reverb_is_the_only_connection_besides_this_origin(): void
     {
-        config(['reverb.apps.apps.0.options.host' => 'ws.example.test', 'reverb.apps.apps.0.options.port' => 443]);
+        config([
+            'reverb.client' => ['host' => null, 'port' => null, 'scheme' => null],
+            'reverb.apps.apps.0.options.host' => 'ws.example.test',
+            'reverb.apps.apps.0.options.port' => 443,
+            'reverb.apps.apps.0.options.scheme' => null,
+        ]);
 
         $policy = $this->policy($this->get('/login'));
 
         $this->assertSame(["'self'", 'ws://ws.example.test:443', 'wss://ws.example.test:443'], $policy['connect-src']);
+    }
+
+    public function test_behind_a_proxy_the_browser_address_is_allowed_not_the_internal_one(): void
+    {
+        // Production: the server publishes to Reverb on 127.0.0.1:8080, the browser connects to the public name.
+        config([
+            'reverb.apps.apps.0.options' => ['host' => '127.0.0.1', 'port' => 8080, 'scheme' => 'http'],
+            'reverb.client' => ['host' => 'app.example.test', 'port' => 443, 'scheme' => 'https'],
+        ]);
+
+        $policy = $this->policy($this->get('/login'));
+
+        $this->assertSame(["'self'", 'wss://app.example.test:443'], $policy['connect-src']);
     }
 
     public function test_a_response_that_already_has_a_policy_keeps_it(): void

@@ -67,6 +67,24 @@ return [
     |
     */
 
+    /*
+    |--------------------------------------------------------------------------
+    | Browser Address
+    |--------------------------------------------------------------------------
+    |
+    | Where the browser's Echo client connects: the VITE_REVERB_* values baked
+    | into the front-end build. Behind a proxy this is the public name on 443,
+    | not the REVERB_HOST the server publishes to (often 127.0.0.1:8080). The
+    | Content Security Policy allows this address for WebSockets.
+    |
+    */
+
+    'client' => [
+        'host' => env('VITE_REVERB_HOST'),
+        'port' => env('VITE_REVERB_PORT'),
+        'scheme' => env('VITE_REVERB_SCHEME'),
+    ],
+
     'apps' => [
 
         'provider' => 'config',

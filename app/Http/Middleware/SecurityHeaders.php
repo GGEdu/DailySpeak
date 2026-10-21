@@ -67,21 +67,29 @@ class SecurityHeaders
     }
 
     /**
-     * The WebSocket host the browser connects to for live debate updates.
+     * The WebSocket address the browser connects to for live debate updates: the one baked into the front-end
+     * build, or the server's Reverb address when the build does not set one (local development).
      *
      * @return list<string>
      */
     private function reverbSources(): array
     {
-        $options = config('reverb.apps.apps.0.options', []);
-        $host = $options['host'] ?? null;
+        $client = config('reverb.client', []);
+        $server = config('reverb.apps.apps.0.options', []);
+        [$host, $port, $scheme] = filled($client['host'] ?? null)
+            ? [$client['host'], $client['port'] ?? null, $client['scheme'] ?? null]
+            : [$server['host'] ?? null, $server['port'] ?? null, $server['scheme'] ?? null];
 
         if (blank($host)) {
             return [];
         }
 
-        $authority = $host.(isset($options['port']) ? ':'.$options['port'] : '');
+        $authority = $host.(filled($port) ? ':'.$port : '');
 
-        return ["ws://{$authority}", "wss://{$authority}"];
+        return match ($scheme) {
+            'https' => ["wss://{$authority}"],
+            'http' => ["ws://{$authority}"],
+            default => ["ws://{$authority}", "wss://{$authority}"],
+        };
     }
 }
