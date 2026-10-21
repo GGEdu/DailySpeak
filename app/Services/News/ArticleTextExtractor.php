@@ -19,6 +19,11 @@ class ArticleTextExtractor
     private const BODY_PARAGRAPHS = './/p[not(ancestor::figure) and not(ancestor::li) and not(ancestor::a)'
         .' and not(ancestor::aside) and not(ancestor::nav) and not(ancestor::footer)]';
 
+    /**
+     * A page with fewer paragraphs is a video, a gallery or a listing, not an article.
+     */
+    private const MIN_PARAGRAPHS = 3;
+
     public function __construct(private readonly SafeHttpFetcher $fetcher) {}
 
     /**
@@ -65,11 +70,15 @@ class ArticleTextExtractor
             ?? $xpath->query('//main')->item(0)
             ?? $document->documentElement;
 
-        $text = collect($xpath->query(self::BODY_PARAGRAPHS, $root))
+        $paragraphs = collect($xpath->query(self::BODY_PARAGRAPHS, $root))
             ->map(fn (DOMNode $paragraph) => trim((string) preg_replace('/\s+/u', ' ', $paragraph->textContent)))
             ->filter()
-            ->implode("\n\n");
+            ->values();
 
-        return $text === '' ? null : Str::limit($text, config('news.max_article_characters'), '');
+        if ($paragraphs->count() < self::MIN_PARAGRAPHS) {
+            return null;
+        }
+
+        return Str::limit($paragraphs->implode("\n\n"), config('news.max_article_characters'), '');
     }
 }

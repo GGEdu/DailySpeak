@@ -32,7 +32,9 @@ class ArticleTextExtractorTest extends TestCase
     {
         config(['news.max_article_characters' => 20]);
 
-        $text = app(ArticleTextExtractor::class)->fromHtml('<html><body><main><p>'.str_repeat('á', 50).'</p></main></body></html>');
+        $text = app(ArticleTextExtractor::class)->fromHtml(
+            '<html><body><main><p>'.str_repeat('á', 50).'</p><p>Second.</p><p>Third.</p></main></body></html>'
+        );
 
         $this->assertSame(str_repeat('á', 20), $text);
     }
@@ -40,6 +42,13 @@ class ArticleTextExtractorTest extends TestCase
     public function test_it_returns_null_when_there_is_no_text(): void
     {
         $this->assertNull(app(ArticleTextExtractor::class)->fromHtml('<html><body><video src="clip.mp4"></video></body></html>'));
+    }
+
+    public function test_a_page_with_fewer_than_three_paragraphs_is_not_an_article(): void
+    {
+        $html = '<html><body><main><p>'.str_repeat('Long sentence about the news. ', 30).'</p><p>Watch the clip.</p></main></body></html>';
+
+        $this->assertNull(app(ArticleTextExtractor::class)->fromHtml($html));
     }
 
     public function test_it_downloads_the_article_page(): void
