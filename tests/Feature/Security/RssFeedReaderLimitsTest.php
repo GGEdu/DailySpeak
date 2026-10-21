@@ -39,7 +39,7 @@ class RssFeedReaderLimitsTest extends TestCase
         $entities = ['<!ENTITY lol0 "lol">'];
 
         for ($level = 1; $level <= 9; $level++) {
-            $entities[] = "<!ENTITY lol{$level} \"".str_repeat("&lol".($level - 1).";", 10).'">';
+            $entities[] = "<!ENTITY lol{$level} \"".str_repeat('&lol'.($level - 1).';', 10).'">';
         }
 
         $dtd = implode("\n", $entities);
