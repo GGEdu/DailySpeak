@@ -9,7 +9,7 @@ defineProps({
 });
 
 const chipClass = (isActive) => [
-    'inline-flex rounded-full border px-3.5 py-1.5 text-sm font-medium transition outline-none focus-visible:ring-2 focus-visible:ring-speaking/40',
+    'inline-flex rounded-full border px-3.5 py-1.5 text-sm font-medium transition outline-none focus-visible:ring-2 focus-visible:ring-speaking',
     isActive ? 'border-speaking/60 bg-speaking/10 text-speaking' : 'border-white/10 text-ink-300 hover:border-white/20 hover:text-ink-100',
 ];
 </script>

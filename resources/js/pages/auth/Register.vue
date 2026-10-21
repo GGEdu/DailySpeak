@@ -32,7 +32,7 @@ const submit = () => form.post('/register', { onFinish: () => form.reset('passwo
                     <label
                         v-for="level in levels"
                         :key="level"
-                        class="cursor-pointer rounded-lg border px-3 py-2 text-center text-sm font-medium transition has-focus-visible:ring-2 has-focus-visible:ring-speaking/30"
+                        class="cursor-pointer rounded-lg border px-3 py-2 text-center text-sm font-medium transition has-focus-visible:ring-2 has-focus-visible:ring-speaking/60"
                         :class="form.current_level === level ? 'border-speaking/60 bg-speaking/10 text-ink-100' : 'border-white/10 text-ink-400 hover:text-ink-200'"
                     >
                         <input v-model="form.current_level" type="radio" name="current_level" :value="level" class="sr-only" />
