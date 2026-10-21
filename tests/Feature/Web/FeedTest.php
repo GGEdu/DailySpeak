@@ -143,4 +143,52 @@ class FeedTest extends TestCase
 
         Exceptions::assertReportedCount(1);
     }
+
+    public function test_a_search_is_capped_at_one_hundred_characters(): void
+    {
+        $this->actingAs(User::factory()->create())
+            ->get('/feed?q='.str_repeat('a', 150))
+            ->assertInertia(fn (Assert $page) => $page->where('search', str_repeat('a', 100)));
+    }
+
+    public function test_wildcards_in_a_search_only_match_themselves_in_the_database_fallback(): void
+    {
+        NewsArticle::factory()->create(['title' => 'Prices rise 100 percent']);
+        Exceptions::fake();
+        config(['scout.driver' => 'meilisearch', 'scout.meilisearch.host' => 'http://127.0.0.1:1']);
+        $user = User::factory()->create();
+
+        // "%" and "_" are LIKE wildcards: unescaped, "100%" would match every story and "ri_e" would match "rise".
+        $this->actingAs($user)->get('/feed?q='.rawurlencode('100%'))->assertInertia(fn (Assert $page) => $page->has('articles', 0));
+        $this->actingAs($user)->get('/feed?q=ri_e')->assertInertia(fn (Assert $page) => $page->has('articles', 0));
+        $this->actingAs($user)->get('/feed?q='.rawurlencode('100 percent'))->assertInertia(fn (Assert $page) => $page->has('articles', 1));
+    }
+
+    public function test_a_user_can_run_thirty_searches_a_minute(): void
+    {
+        NewsArticle::factory()->create(['title' => 'Madrid bans cars']);
+        $user = User::factory()->create();
+
+        for ($i = 0; $i < 30; $i++) {
+            $this->actingAs($user)->get('/feed?q=madrid')->assertOk();
+        }
+
+        $this->actingAs($user)->get('/feed?q=madrid')->assertStatus(429);
+        // Browsing the latest news is not a search, and another user has their own allowance.
+        $this->actingAs($user)->get('/feed')->assertOk();
+        $this->actingAs(User::factory()->create())->get('/feed?q=madrid')->assertOk();
+    }
+
+    public function test_stories_published_at_the_same_moment_come_newest_id_first(): void
+    {
+        $publishedAt = now()->subHour()->startOfSecond();
+        $first = NewsArticle::factory()->create(['published_at' => $publishedAt]);
+        $second = NewsArticle::factory()->create(['published_at' => $publishedAt]);
+
+        $this->actingAs(User::factory()->create())
+            ->get('/feed')
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('articles.0.id', $second->id)
+                ->where('articles.1.id', $first->id));
+    }
 }
