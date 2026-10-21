@@ -8,6 +8,7 @@ use App\Models\NewsSource;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Sleep;
 use Laravel\Ai\Prompts\AgentPrompt;
 use RuntimeException;
@@ -90,9 +91,9 @@ class FetchDailyNewsTest extends TestCase
         $this->assertSame(2, NewsArticle::count());
     }
 
-    public function test_it_skips_articles_whose_page_has_no_usable_text(): void
+    public function test_a_page_without_usable_text_is_skipped(): void
     {
-        $this->fakeHttp(['www.bbc.co.uk/news/articles/genes2*' => Http::response('Not found', 404)]);
+        $this->fakeHttp(['www.bbc.co.uk/news/articles/genes2*' => Http::response('<html><body><main><p>Play</p></main></body></html>')]);
         $this->fakeSummaries();
 
         $this->artisan('news:fetch')
@@ -101,6 +102,22 @@ class FetchDailyNewsTest extends TestCase
 
         NewsSummarizer::assertPromptedTimes(1);
         $this->assertDatabaseMissing('news_articles', ['source_url' => self::GENES_URL]);
+    }
+
+    public function test_a_page_that_cannot_be_downloaded_is_a_logged_failure(): void
+    {
+        Log::spy();
+        $this->fakeHttp(['www.bbc.co.uk/news/articles/genes2*' => Http::response('Forbidden', 403)]);
+        $this->fakeSummaries();
+
+        $this->artisan('news:fetch')
+            ->expectsOutputToContain('Saved 1, skipped 1, failed 1.')
+            ->assertSuccessful();
+
+        Log::shouldHaveReceived('error')->atLeast()->once();
+        $this->assertDatabaseMissing('news_articles', ['source_url' => self::GENES_URL]);
+        $this->assertStringContainsString('1 article(s) failed', $this->source->fresh()->last_error);
+        $this->assertStringContainsString('403', $this->source->fresh()->last_error);
     }
 
     public function test_a_failed_summary_does_not_stop_the_other_articles(): void
@@ -112,14 +129,31 @@ class FetchDailyNewsTest extends TestCase
             return ['is_article' => true, 'summary' => self::SUMMARY, 'vocabulary' => self::VOCABULARY];
         })->preventStrayPrompts();
 
+        // Some articles were saved, so the run is not a failure; the source shows what went wrong.
         $this->artisan('news:fetch')
             ->expectsOutputToContain('Rate limit exceeded')
             ->expectsOutputToContain('Saved 1, skipped 1, failed 1.')
-            ->assertFailed();
+            ->assertSuccessful();
 
         $this->assertDatabaseMissing('news_articles', ['source_url' => self::TRANSPORT_URL]);
         $this->assertDatabaseHas('news_articles', ['source_url' => self::GENES_URL]);
-        $this->assertNull($this->source->fresh()->last_error);
+        $this->assertStringContainsString('1 article(s) failed', $this->source->fresh()->last_error);
+        $this->assertStringContainsString('Rate limit exceeded', $this->source->fresh()->last_error);
+    }
+
+    public function test_the_source_is_marked_as_fetched_when_the_run_ends_not_when_it_starts(): void
+    {
+        $this->freezeSecond();
+        $this->fakeHttp();
+        NewsSummarizer::fake(function () {
+            $this->assertNull($this->source->fresh()->last_fetched_at);
+
+            return ['is_article' => true, 'summary' => self::SUMMARY, 'vocabulary' => self::VOCABULARY];
+        })->preventStrayPrompts();
+
+        $this->artisan('news:fetch')->assertSuccessful();
+
+        $this->assertTrue($this->source->fresh()->last_fetched_at->equalTo(now()));
     }
 
     public function test_incomplete_model_output_is_not_stored(): void
@@ -337,7 +371,8 @@ class FetchDailyNewsTest extends TestCase
         );
         $this->fakeSummaries();
 
-        $this->artisan('news:fetch')->expectsOutputToContain('Saved 0, skipped 1, failed 0.')->assertSuccessful();
+        // Nothing saved and something failed: the source failed, so the run exits with an error.
+        $this->artisan('news:fetch')->expectsOutputToContain('Saved 0, skipped 0, failed 1.')->assertFailed();
         $this->artisan('news:fetch')->expectsOutputToContain('Saved 1, skipped 0, failed 0.')->assertSuccessful();
 
         $this->assertDatabaseHas('news_articles', ['source_url' => 'https://www.bbc.co.uk/news/articles/first']);
@@ -351,7 +386,7 @@ class FetchDailyNewsTest extends TestCase
         $this->artisan('news:fetch')->assertFailed();
 
         $error = $this->source->fresh()->last_error;
-        $this->assertStringContainsString('2 article(s) could not be summarised', $error);
+        $this->assertStringContainsString('2 article(s) failed', $error);
         $this->assertStringContainsString('Rate limit exceeded', $error);
         $this->assertNotNull($this->source->fresh()->last_fetched_at);
     }

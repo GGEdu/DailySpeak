@@ -20,8 +20,8 @@ class FetchDailyNews extends Command
      */
     public function handle(NewsHarvester $harvester): int
     {
-        $limit = (int) ($this->option('limit') ?? config('news.max_articles_per_feed'));
-        $created = $skipped = $failed = 0;
+        $limit = max(1, (int) ($this->option('limit') ?? config('news.max_articles_per_feed')));
+        $created = $skipped = $failed = $failedSources = 0;
 
         foreach ($this->feeds() as [$feed, $source]) {
             $this->components->info("Reading {$feed}");
@@ -32,6 +32,12 @@ class FetchDailyNews extends Command
                 $this->components->error("Could not read the feed: {$result->readError}");
             }
 
+            // A source fails when its feed cannot be read, or when nothing new was saved and something failed.
+            // A few failed articles beside saved ones are shown in the source's last error, not as a failed run.
+            if ($result->readError !== null || ($result->failed > 0 && $result->created === 0)) {
+                $failedSources++;
+            }
+
             $created += $result->created;
             $skipped += $result->skipped;
             $failed += $result->failed;
@@ -40,7 +46,7 @@ class FetchDailyNews extends Command
         $this->newLine();
         $this->components->info("Saved {$created}, skipped {$skipped}, failed {$failed}.");
 
-        return $failed > 0 ? self::FAILURE : self::SUCCESS;
+        return $failedSources > 0 ? self::FAILURE : self::SUCCESS;
     }
 
     /**

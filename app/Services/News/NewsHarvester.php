@@ -67,8 +67,6 @@ class NewsHarvester
             return new HarvestResult(failed: 1, readError: $message);
         }
 
-        $source?->update(['last_fetched_at' => now(), 'last_error' => null]);
-
         $known = NewsArticle::whereIn('source_url', $items->pluck('url'))->pluck('source_url');
         $saved = $skipped = $failed = $downloads = 0;
         $firstError = null;
@@ -129,8 +127,10 @@ class NewsHarvester
         try {
             $html = $this->extractor->download($item->url);
         } catch (Throwable $e) {
-            // A failed download is not remembered: the page may be fine tomorrow.
-            return [self::SKIPPED, 'could not download: '.$e->getMessage()];
+            // Logged, and not remembered: the page may be fine tomorrow.
+            report($e);
+
+            return [self::FAILED, 'could not download: '.$e->getMessage()];
         }
 
         $text = $this->extractor->fromHtml($html);
@@ -203,9 +203,8 @@ class NewsHarvester
     }
 
     /**
-     * Keep the source's last_error in step with the run, so the admin page shows what went wrong.
-     * A run that saved nothing because every summary failed is an error; a run stopped by its time
-     * limit is not, but the admin should know the feed was not read to the end.
+     * Record the outcome of the run on the source, which the admin page shows: when it finished, and what
+     * went wrong. Partial failures are reported too, even when some articles were saved.
      */
     private function recordRun(?NewsSource $source, int $saved, int $failed, ?string $firstError, bool $outOfTime): void
     {
@@ -213,13 +212,20 @@ class NewsHarvester
             return;
         }
 
-        $error = match (true) {
-            $failed > 0 && $saved === 0 => "{$failed} article(s) could not be summarised: {$firstError}",
-            $outOfTime => "Stopped at the time limit after {$saved} article(s). Fetch the source again to read the rest.",
-            default => null,
-        };
+        $problems = [];
 
-        $source->update(['last_error' => $error === null ? null : Str::limit($error, 1000)]);
+        if ($failed > 0) {
+            $problems[] = "{$failed} article(s) failed. First error: {$firstError}";
+        }
+
+        if ($outOfTime) {
+            $problems[] = "Stopped at the time limit after {$saved} article(s). Fetch the source again to read the rest.";
+        }
+
+        $source->update([
+            'last_fetched_at' => now(),
+            'last_error' => $problems === [] ? null : Str::limit(implode(' ', $problems), 1000),
+        ]);
     }
 
     private function isNotAnArticleUrl(string $url): bool
