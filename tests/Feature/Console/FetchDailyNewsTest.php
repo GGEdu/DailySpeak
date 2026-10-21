@@ -5,12 +5,15 @@ namespace Tests\Feature\Console;
 use App\Ai\Agents\NewsSummarizer;
 use App\Models\NewsArticle;
 use App\Models\NewsSource;
+use App\Services\News\HarvestResult;
+use App\Services\News\NewsHarvester;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Sleep;
 use Laravel\Ai\Prompts\AgentPrompt;
+use Mockery\MockInterface;
 use RuntimeException;
 use Tests\TestCase;
 
@@ -182,6 +185,28 @@ class FetchDailyNewsTest extends TestCase
 
         $this->artisan('news:fetch')->assertSuccessful();
         NewsSummarizer::assertPromptedTimes(2);
+    }
+
+    public function test_an_error_in_one_feed_does_not_stop_the_others(): void
+    {
+        NewsSource::factory()->create(['feed_url' => 'https://feeds.other.test/rss.xml']);
+        $calls = 0;
+        $this->mock(NewsHarvester::class, function (MockInterface $mock) use (&$calls) {
+            $mock->shouldReceive('harvest')->twice()->andReturnUsing(function () use (&$calls) {
+                if (++$calls === 1) {
+                    throw new RuntimeException('Database is down');
+                }
+
+                return new HarvestResult(created: 1);
+            });
+        });
+
+        $this->artisan('news:fetch')
+            ->expectsOutputToContain('Could not harvest')
+            ->assertFailed();
+
+        $this->assertSame(2, $calls);
+        $this->assertStringContainsString('Database is down', $this->source->fresh()->last_error);
     }
 
     public function test_a_failed_summary_is_not_sent_to_the_model_again_for_a_day(): void

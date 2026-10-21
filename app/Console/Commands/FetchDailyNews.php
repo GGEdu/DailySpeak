@@ -7,6 +7,8 @@ use App\Services\News\NewsHarvester;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
+use Illuminate\Support\Str;
+use Throwable;
 
 #[Signature('news:fetch
     {--source=* : ID of a news source to read (default: every active source)}
@@ -27,7 +29,17 @@ class FetchDailyNews extends Command
         foreach ($this->feeds() as [$feed, $source]) {
             $this->components->info("Reading {$feed}");
 
-            $result = $harvester->harvest($feed, $source, $limit, $until, onItem: $this->printItem(...));
+            try {
+                $result = $harvester->harvest($feed, $source, $limit, $until, onItem: $this->printItem(...));
+            } catch (Throwable $e) {
+                // A database or cache failure in one feed must not stop the feeds after it.
+                report($e);
+                $this->components->error("Could not harvest {$feed}: {$e->getMessage()}");
+                rescue(fn () => $source?->update(['last_error' => Str::limit($e->getMessage(), 1000)]), report: false);
+                $failedSources++;
+
+                continue;
+            }
 
             if ($result->readError !== null) {
                 $this->components->error("Could not read the feed: {$result->readError}");
