@@ -200,6 +200,10 @@ function submitFinish() {
         {},
         {
             preserveScroll: true,
+            // The server refuses with a message (e.g. the daily AI budget is used up): show it instead of nothing.
+            onError: (errors) => {
+                store.notice = { tone: 'error', text: errors.finish ?? "Couldn't finish the debate. Please try again." };
+            },
             onFinish: () => {
                 finishing.value = false;
             },
