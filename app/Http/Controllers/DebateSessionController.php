@@ -33,15 +33,14 @@ class DebateSessionController extends Controller
      */
     public function show(Debate $debate): Response
     {
-        $debate->load('newsArticle');
-
+        // Closures, so that the report poll (a partial reload of `debate` only) does not rebuild them.
         return Inertia::render('Debate', [
             'debate' => [
                 ...(new DebateResource($debate))->resolve(),
                 'audio_upload_url' => route('debates.audio.store', $debate),
             ],
-            'article' => (new NewsArticleResource($debate->newsArticle))->resolve(),
-            'messages' => DebateMessageResource::collection($debate->messages()->orderBy('id')->get())->resolve(),
+            'article' => fn () => (new NewsArticleResource($debate->newsArticle))->resolve(),
+            'messages' => fn () => DebateMessageResource::collection($debate->messages()->orderBy('id')->get())->resolve(),
         ]);
     }
 

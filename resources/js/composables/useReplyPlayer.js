@@ -1,5 +1,5 @@
 import { onBeforeUnmount, ref, shallowRef } from 'vue';
-import { audioContext, createAnalyser } from '../lib/audio';
+import { audioContext, createAnalyser, resumeAudio } from '../lib/audio.js';
 
 /**
  * Plays the tutor's MP3 replies through Web Audio so the UI can visualise them.
@@ -12,24 +12,22 @@ export function useReplyPlayer() {
     let audio = null;
 
     /**
-     * Resolves when playback finishes (or is stopped); rejects if it cannot start.
+     * Resolves when playback finishes (or is stopped); rejects if it cannot start or breaks off.
      */
     async function play(url, id = null) {
         stop();
 
-        audio = new Audio(url);
-        const element = audio;
+        const element = new Audio(url);
+        audio = element;
 
-        await audioContext().resume();
+        await resumeAudio();
+
         const source = audioContext().createMediaElementSource(element);
         analyser.value = createAnalyser();
         source.connect(analyser.value);
         analyser.value.connect(audioContext().destination);
 
-        const finished = new Promise((resolve) => {
-            element.onended = resolve;
-            element.onpause = resolve;
-        }).finally(() => {
+        const release = () => {
             source.disconnect();
 
             if (audio === element) {
@@ -38,7 +36,15 @@ export function useReplyPlayer() {
                 playing.value = false;
                 playingId.value = null;
             }
+        };
+
+        const ended = new Promise((resolve, reject) => {
+            element.onended = () => resolve();
+            element.onpause = () => resolve();
+            element.onerror = () => reject(new Error("The tutor's audio could not be played."));
         });
+        // Handled here so that a failure before the caller awaits it is not reported as unhandled.
+        ended.catch(() => {});
 
         playing.value = true;
         playingId.value = id;
@@ -46,13 +52,13 @@ export function useReplyPlayer() {
         try {
             await element.play();
         } catch (error) {
-            element.onpause = null;
-            element.onended?.();
+            element.onended = element.onpause = element.onerror = null;
+            release();
 
             throw error;
         }
 
-        return finished;
+        return ended.finally(release);
     }
 
     function stop() {

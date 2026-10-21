@@ -3,11 +3,14 @@
 namespace Tests\Feature\Web;
 
 use App\Enums\MessageRole;
+use App\Http\Middleware\HandleInertiaRequests;
 use App\Models\Debate;
 use App\Models\DebateMessage;
 use App\Models\NewsArticle;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\TestCase;
 
@@ -53,6 +56,45 @@ class DebatePageTest extends TestCase
                 ->where('messages.0.transcript', 'Opening argument.')
                 ->where('messages.1.role', MessageRole::Assistant->value)
                 ->where('messages.1.audio_url', fn (string $url) => str_contains($url, 'signature=')));
+    }
+
+    public function test_the_report_poll_does_not_query_the_transcript_or_the_article(): void
+    {
+        $debate = Debate::factory()->create();
+        DebateMessage::factory()->for($debate)->fromUser()->create();
+        $version = (string) (new HandleInertiaRequests)->version(Request::create('/'));
+
+        // Polling the report reloads `debate` alone: the transcript and the article must not even be queried.
+        DB::enableQueryLog();
+        $props = $this->actingAs($debate->user)
+            ->withHeaders(['X-Inertia' => 'true', 'X-Inertia-Version' => $version, 'X-Inertia-Partial-Component' => 'Debate', 'X-Inertia-Partial-Data' => 'debate'])
+            ->get("/debates/{$debate->id}")
+            ->assertOk()
+            ->json('props');
+        $queries = collect(DB::getQueryLog())->pluck('query')->implode("\n");
+        DB::disableQueryLog();
+
+        $this->assertSame($debate->id, $props['debate']['id']);
+        $this->assertArrayNotHasKey('messages', $props);
+        $this->assertStringNotContainsString('"debate_messages"', $queries);
+        $this->assertStringNotContainsString('"news_articles"', $queries);
+    }
+
+    public function test_recovering_a_lost_reply_reloads_only_the_transcript(): void
+    {
+        $debate = Debate::factory()->create();
+        DebateMessage::factory()->for($debate)->fromUser()->create();
+        $version = (string) (new HandleInertiaRequests)->version(Request::create('/'));
+
+        $props = $this->actingAs($debate->user)
+            ->withHeaders(['X-Inertia' => 'true', 'X-Inertia-Version' => $version, 'X-Inertia-Partial-Component' => 'Debate', 'X-Inertia-Partial-Data' => 'messages'])
+            ->get("/debates/{$debate->id}")
+            ->assertOk()
+            ->json('props');
+
+        $this->assertCount(1, $props['messages']);
+        $this->assertArrayNotHasKey('article', $props);
+        $this->assertArrayNotHasKey('debate', $props);
     }
 
     public function test_users_cannot_open_someone_elses_debate(): void
