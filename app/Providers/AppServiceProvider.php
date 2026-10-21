@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Jobs\ProcessVoiceDebate;
 use App\Models\User;
 use App\Services\News\DnsHostResolver;
 use App\Services\News\HostResolver;
@@ -15,6 +16,7 @@ use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rules\Password;
+use ReflectionProperty;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -59,6 +61,7 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->trustProxies();
         $this->warnAboutInvalidDebateOptions();
+        $this->warnAboutVoiceTurnBudget();
 
         Gate::define('admin', fn (User $user) => $user->is_admin);
 
@@ -149,6 +152,28 @@ class AppServiceProvider extends ServiceProvider
     {
         if (config('debate.llm.options_valid') === false && Cache::add('debate-llm-options-warning', true, now()->addHour())) {
             Log::warning('DEBATE_LLM_OPTIONS is not a valid JSON object, so it is ignored and the tutor uses the provider defaults.');
+        }
+    }
+
+    /**
+     * A voice turn runs STT, the tutor, TTS, the backup voice, two broadcasts and the job's overhead inside
+     * ProcessVoiceDebate. When the request timeouts add up to the job's timeout, the job is killed mid-turn, so say so
+     * once an hour. The same sum is documented in config/debate.php.
+     */
+    private function warnAboutVoiceTurnBudget(): void
+    {
+        $budget = (float) config('debate.stt.timeout')
+            + (float) config('debate.llm.timeout')
+            + (float) config('debate.tts.timeout')
+            + (float) config('debate.tts.fallback.timeout')
+            + 2 * (float) config('broadcasting.connections.reverb.client_options.timeout')
+            + ProcessVoiceDebate::OVERHEAD_SECONDS;
+
+        // The timeout is an instance property with a default, so it is read without building a job.
+        $jobTimeout = (new ReflectionProperty(ProcessVoiceDebate::class, 'timeout'))->getDefaultValue();
+
+        if ($budget >= $jobTimeout && Cache::add('voice-turn-budget-warning', true, now()->addHour())) {
+            Log::warning("A voice turn may need {$budget} seconds, but ProcessVoiceDebate stops at {$jobTimeout}. Lower the DEBATE_*_TIMEOUT values or the job's timeout is exceeded mid-turn.");
         }
     }
 }
