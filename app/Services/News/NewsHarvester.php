@@ -49,6 +49,12 @@ class NewsHarvester
     /** Paragraphs a summary may have. The prompt asks for three. */
     private const SUMMARY_PARAGRAPHS = [2, 5];
 
+    /**
+     * Terms the model gave that are not in the article are dropped. A few paraphrases are tolerated, but an
+     * answer where fewer than this many terms are the article's own is refused.
+     */
+    private const MIN_VOCABULARY_IN_TEXT = 3;
+
     /** Common English words: a summary with at least this many different ones is written in English. */
     private const ENGLISH_WORDS = [
         'the', 'and', 'of', 'to', 'in', 'is', 'that', 'for', 'with', 'it', 'on', 'as', 'was', 'are', 'by',
@@ -269,8 +275,8 @@ class NewsHarvester
             throw new UnexpectedValueException('The model returned an empty summary or vocabulary.');
         }
 
-        if (count($vocabulary) < NewsSummarizer::VOCABULARY_SIZE) {
-            throw new UnexpectedValueException('Fewer than '.NewsSummarizer::VOCABULARY_SIZE.' of the vocabulary terms appear in the article.');
+        if (count($vocabulary) < self::MIN_VOCABULARY_IN_TEXT) {
+            throw new UnexpectedValueException('Only '.count($vocabulary).' of the vocabulary terms appear in the article.');
         }
 
         $this->assertPlausibleSummary($summary, $paragraphs->count());

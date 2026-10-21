@@ -317,6 +317,20 @@ class FetchDailyNewsTest extends TestCase
         );
     }
 
+    public function test_a_term_that_is_not_in_the_article_is_dropped_and_the_article_is_still_stored(): void
+    {
+        $this->fakeHttp();
+        NewsSummarizer::fake(fn () => [
+            'is_article' => true,
+            'summary' => self::SUMMARY,
+            'vocabulary' => ['overhauling', 'congestion', 'long overdue', 'overly ambitious', 'stall'],
+        ])->preventStrayPrompts();
+
+        $this->artisan('news:fetch', ['--limit' => 1])->assertSuccessful();
+
+        $this->assertSame(['congestion', 'long overdue', 'overly ambitious', 'stall'], NewsArticle::sole()->key_vocabulary);
+    }
+
     public function test_summaries_that_break_the_rules_are_failures_and_are_not_stored(): void
     {
         $cases = [
@@ -324,7 +338,7 @@ class FetchDailyNewsTest extends TestCase
             'not English' => ['summary' => "El ayuntamiento ha aprobado el plan de transporte.\n\nLos concejales dicen que es demasiado ambicioso.\n\nLas primeras rutas abren la próxima primavera.", 'reason' => 'not write the summary in English'],
             'one paragraph' => ['summary' => 'The council has approved the plan and it is a long one.', 'reason' => 'paragraph(s)'],
             'too long' => ['summary' => implode("\n\n", array_fill(0, 3, str_repeat('The council has approved the plan and it is long. ', 40))), 'reason' => 'longer than 2000'],
-            'vocabulary not in the article' => ['summary' => self::SUMMARY, 'vocabulary' => ['nuance', 'scrutiny', 'bolster', 'overhaul', 'congestion'], 'reason' => 'Fewer than 5'],
+            'vocabulary not in the article' => ['summary' => self::SUMMARY, 'vocabulary' => ['nuance', 'scrutiny', 'bolster', 'overhaul', 'congestion'], 'reason' => 'Only 2 of the vocabulary terms'],
         ];
 
         foreach ($cases as $name => $case) {
@@ -358,7 +372,7 @@ class FetchDailyNewsTest extends TestCase
 
         NewsSummarizer::assertPrompted(fn (AgentPrompt $prompt) => str_contains($prompt->prompt, "<article_text>\n")
             && substr_count($prompt->prompt, '</article_text>') === 1
-            && str_ends_with($prompt->prompt, "</article_text>"));
+            && str_ends_with($prompt->prompt, '</article_text>'));
     }
 
     public function test_feed_and_limit_options_override_the_configuration(): void
