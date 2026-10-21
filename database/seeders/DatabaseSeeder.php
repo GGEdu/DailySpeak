@@ -20,6 +20,11 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
+        // The demo admin has a known email and password: never create it in production.
+        if (app()->isProduction()) {
+            return;
+        }
+
         $user = User::factory()->admin()->level(EnglishLevel::C1)->create([
             'name' => 'Test User',
             'email' => 'test@example.com',

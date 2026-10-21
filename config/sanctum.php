@@ -18,12 +18,12 @@ return [
     |
     */
 
-    'stateful' => explode(',', env('SANCTUM_STATEFUL_DOMAINS', sprintf(
-        '%s%s',
-        'localhost,localhost:3000,127.0.0.1,127.0.0.1:8000,::1',
-        Sanctum::currentApplicationUrlWithPort(),
+    // Local development hosts are only trusted outside production.
+    'stateful' => explode(',', env('SANCTUM_STATEFUL_DOMAINS', implode(',', array_filter([
+        env('APP_ENV', 'production') === 'production' ? null : 'localhost,localhost:3000,127.0.0.1,127.0.0.1:8000,::1',
+        ltrim(Sanctum::currentApplicationUrlWithPort(), ','),
         // Sanctum::currentRequestHost(),
-    ))),
+    ])))),
 
     /*
     |--------------------------------------------------------------------------

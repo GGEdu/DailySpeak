@@ -1,11 +1,13 @@
 <?php
 
 use App\Http\Middleware\HandleInertiaRequests;
+use App\Http\Middleware\SecurityHeaders;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Middleware\AddLinkHeadersForPreloadedAssets;
 use Illuminate\Http\Request;
+use Inertia\Middleware\EncryptHistory;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -19,9 +21,16 @@ return Application::configure(basePath: dirname(__DIR__))
         // Let the web frontend call /api with its session cookie (Sanctum SPA authentication).
         $middleware->statefulApi();
 
-        $middleware->web(append: [
+        // A password change (including a reset) signs out the sessions that were open with the old one.
+        $middleware->authenticateSessions();
+
+        $middleware->web(prepend: [
+            SecurityHeaders::class,
+        ], append: [
             HandleInertiaRequests::class,
             AddLinkHeadersForPreloadedAssets::class,
+            // The browser history of Inertia pages is encrypted; logout clears the key (see AuthenticatedSessionController).
+            EncryptHistory::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
