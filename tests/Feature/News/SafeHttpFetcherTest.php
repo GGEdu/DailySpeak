@@ -5,10 +5,14 @@ namespace Tests\Feature\News;
 use App\Services\News\HostResolver;
 use App\Services\News\SafeHttpFetcher;
 use App\Services\News\UnsafeUrlException;
+use Closure;
+use GuzzleHttp\Exception\RequestException as GuzzleRequestException;
+use GuzzleHttp\Psr7\Request as PsrRequest;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Sleep;
+use RuntimeException;
 use Tests\Support\FakeHostResolver;
 use Tests\TestCase;
 use UnexpectedValueException;
@@ -43,7 +47,7 @@ class SafeHttpFetcherTest extends TestCase
         $addresses = [
             '127.0.0.1', '10.1.2.3', '172.16.5.4', '192.168.0.10', '169.254.169.254', '100.64.0.1',
             '0.0.0.0', '192.0.0.8', '224.0.0.1', '240.0.0.1', '198.18.0.1',
-            '::', '::1', '::ffff:127.0.0.1', '64:ff9b::7f00:1', 'fc00::1', 'fe80::1', 'fec0::1', 'ff02::1', '2001:db8::1',
+            '::', '::1', '::ffff:127.0.0.1', '::ffff:0:7f00:1', '::ffff:0:a00:1', '64:ff9b::7f00:1', 'fc00::1', 'fe80::1', 'fec0::1', 'ff02::1', '2001:db8::1',
         ];
 
         foreach ($addresses as $address) {
@@ -159,9 +163,171 @@ class SafeHttpFetcherTest extends TestCase
         $this->assertSame('local', $this->fetch('http://127.0.0.1/feed.xml'));
     }
 
-    private function fetch(string $url, int $maxBytes = 1024): string
+    public function test_the_connection_is_pinned_to_the_checked_address_when_dns_answers_differently_later(): void
     {
-        return app(SafeHttpFetcher::class)->get($url, $maxBytes);
+        $resolver = new class implements HostResolver
+        {
+            public int $calls = 0;
+
+            public function resolve(string $host): array
+            {
+                // The first answer is public; a second lookup would point at the internal network.
+                return ++$this->calls === 1 ? ['93.184.216.34'] : ['10.0.0.5'];
+            }
+        };
+        $this->app->instance(HostResolver::class, $resolver);
+        $curl = [];
+        $this->fakeRecordingCurl(['rebind.example.test/*' => Http::response('ok')], $curl);
+
+        $this->assertSame('ok', $this->fetch('https://rebind.example.test/feed.xml'));
+
+        $this->assertSame(1, $resolver->calls);
+        $this->assertSame(['rebind.example.test:443:93.184.216.34'], $curl[0][CURLOPT_RESOLVE]);
+    }
+
+    public function test_every_attempt_uses_the_address_that_was_checked(): void
+    {
+        $resolver = new class implements HostResolver
+        {
+            public int $calls = 0;
+
+            public function resolve(string $host): array
+            {
+                return ++$this->calls === 1 ? ['93.184.216.34'] : ['10.0.0.5'];
+            }
+        };
+        $this->app->instance(HostResolver::class, $resolver);
+        $curl = [];
+        $attempts = 0;
+        $this->fakeRecordingCurl([
+            'flaky.example.test/*' => function () use (&$attempts) {
+                return ++$attempts === 1 ? Http::response('', 503) : Http::response('ok');
+            },
+        ], $curl);
+
+        $this->assertSame('ok', $this->fetch('https://flaky.example.test/feed.xml', retries: 1));
+
+        $this->assertSame(2, $attempts);
+        $this->assertSame(1, $resolver->calls);
+        $this->assertSame(['flaky.example.test:443:93.184.216.34'], $curl[0][CURLOPT_RESOLVE]);
+        $this->assertSame(['flaky.example.test:443:93.184.216.34'], $curl[1][CURLOPT_RESOLVE]);
+    }
+
+    public function test_every_redirect_hop_is_pinned_to_its_own_checked_address(): void
+    {
+        $this->resolveTo([
+            'start.example.test' => ['93.184.216.34'],
+            'cdn.example.test' => ['93.184.216.35'],
+        ]);
+        $curl = [];
+        $this->fakeRecordingCurl([
+            'start.example.test/*' => Http::response('', 302, ['Location' => 'https://cdn.example.test/feed.xml']),
+            'cdn.example.test/*' => Http::response('final body'),
+        ], $curl);
+
+        $this->assertSame('final body', $this->fetch('https://start.example.test/feed'));
+
+        $this->assertSame(['start.example.test:443:93.184.216.34'], $curl[0][CURLOPT_RESOLVE]);
+        $this->assertSame(['cdn.example.test:443:93.184.216.35'], $curl[1][CURLOPT_RESOLVE]);
+    }
+
+    public function test_ipv6_addresses_are_pinned_in_brackets_and_literal_addresses_are_not_pinned(): void
+    {
+        $this->resolveTo(['v6.example.test' => ['2606:4700:4700::1111']]);
+        $curl = [];
+        $this->fakeRecordingCurl([
+            'v6.example.test/*' => Http::response('six'),
+            '93.184.216.34/*' => Http::response('four'),
+        ], $curl);
+
+        $this->assertSame('six', $this->fetch('https://v6.example.test/feed.xml'));
+        $this->assertSame(['v6.example.test:443:[2606:4700:4700::1111]'], $curl[0][CURLOPT_RESOLVE]);
+
+        $this->assertSame('four', $this->fetch('https://93.184.216.34/feed.xml'));
+        $this->assertArrayNotHasKey(CURLOPT_RESOLVE, $curl[1]);
+    }
+
+    public function test_the_size_limit_is_handed_to_curl_so_the_download_stops_at_it(): void
+    {
+        $curl = [];
+        $this->fakeRecordingCurl(['big.example.test/*' => Http::response('small')], $curl);
+
+        $this->fetch('https://big.example.test/feed', maxBytes: 1024);
+
+        $this->assertSame(1024, $curl[0][CURLOPT_MAXFILESIZE_LARGE]);
+    }
+
+    public function test_a_download_cut_off_by_the_size_limit_is_too_large_and_is_not_retried(): void
+    {
+        $attempts = 0;
+        // The shape Laravel's client gives when the headers arrived before curl stopped at the size limit.
+        $cutOff = new GuzzleRequestException('cURL error 63: Maximum file size exceeded', new PsrRequest('GET', 'https://big.example.test/feed'), null, null, ['errno' => CURLE_FILESIZE_EXCEEDED]);
+        Http::fake(['big.example.test/*' => function () use (&$attempts, $cutOff) {
+            $attempts++;
+
+            throw new ConnectionException($cutOff->getMessage(), 0, $cutOff);
+        }]);
+
+        $this->assertThrows(fn () => $this->fetch('https://big.example.test/feed', maxBytes: 1024, retries: 2), UnexpectedValueException::class);
+        $this->assertSame(1, $attempts);
+    }
+
+    public function test_connection_errors_are_retried_with_a_growing_pause(): void
+    {
+        $attempts = 0;
+        Http::fake(['down.example.test/*' => function () use (&$attempts) {
+            if (++$attempts < 3) {
+                throw new ConnectionException('Connection reset by peer');
+            }
+
+            return Http::response('back');
+        }]);
+
+        $this->assertSame('back', $this->fetch('https://down.example.test/feed', retries: 2));
+
+        $this->assertSame(3, $attempts);
+        Sleep::assertSequence([Sleep::for(500)->milliseconds(), Sleep::for(1000)->milliseconds()]);
+    }
+
+    public function test_server_errors_are_retried_and_then_reported(): void
+    {
+        Http::fake(['broken.example.test/*' => Http::response('Oops', 503)]);
+
+        $this->assertThrows(fn () => $this->fetch('https://broken.example.test/feed', retries: 2), RequestException::class);
+
+        Http::assertSentCount(3);
+    }
+
+    public function test_client_errors_are_not_retried(): void
+    {
+        $attempts = 0;
+        $status = 403;
+        Http::fake(['limited.example.test/*' => function () use (&$attempts, &$status) {
+            $attempts++;
+
+            return Http::response('No', $status);
+        }]);
+
+        $this->assertThrows(fn () => $this->fetch('https://limited.example.test/feed', retries: 2), RequestException::class);
+        $status = 429;
+        $this->assertThrows(fn () => $this->fetch('https://limited.example.test/feed', retries: 2), RequestException::class);
+
+        $this->assertSame(2, $attempts);
+        Sleep::assertNeverSlept();
+    }
+
+    public function test_private_hosts_cannot_be_allowed_in_production(): void
+    {
+        config(['news.allow_private_hosts' => true]);
+        $this->app['env'] = 'production';
+
+        $this->assertThrows(fn () => $this->fetch('http://127.0.0.1/feed.xml'), RuntimeException::class);
+        Http::assertNothingSent();
+    }
+
+    private function fetch(string $url, int $maxBytes = 1024, int $retries = 0): string
+    {
+        return app(SafeHttpFetcher::class)->get($url, $maxBytes, $retries);
     }
 
     /**
@@ -170,5 +336,26 @@ class SafeHttpFetcherTest extends TestCase
     private function resolveTo(array $addresses): void
     {
         $this->app->instance(HostResolver::class, new FakeHostResolver($addresses));
+    }
+
+    /**
+     * Fake responses and keep the curl options each request was sent with, one entry per request.
+     *
+     * @param  array<string, mixed>  $responses  URL pattern => response
+     * @param  list<array<int, mixed>>  $curl
+     */
+    private function fakeRecordingCurl(array $responses, array &$curl): void
+    {
+        $stubs = [];
+
+        foreach ($responses as $pattern => $response) {
+            $stubs[$pattern] = function ($request, array $options) use ($response, &$curl) {
+                $curl[] = $options['curl'] ?? [];
+
+                return $response instanceof Closure ? $response($request, $options) : $response;
+            };
+        }
+
+        Http::fake($stubs);
     }
 }
