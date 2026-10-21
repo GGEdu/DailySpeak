@@ -108,7 +108,13 @@ final class RobotsTxt
      */
     public function namesAgent(string $agent): bool
     {
-        return collect($this->groups)->contains(fn (array $group) => in_array(strtolower($agent), $group['agents'], true));
+        foreach ($this->groups as $group) {
+            if (in_array(strtolower($agent), $group['agents'], true)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
