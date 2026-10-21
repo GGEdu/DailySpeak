@@ -77,6 +77,14 @@ export async function explain(text, context, scope, signal) {
     return explanations.get(key);
 }
 
+/**
+ * Forget every explanation: called when the learner logs out, so the next person on this device
+ * does not see what was looked up here.
+ */
+export function clearExplanations() {
+    explanations.clear();
+}
+
 export function saveWord(word, context) {
     return postJson('/api/vocabulary', { word, context });
 }
