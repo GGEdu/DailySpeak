@@ -53,5 +53,18 @@
         <env name="LOOKUP_AI_PROVIDER" value="gemini"/>
         <env name="LOOKUP_AI_MODEL" value=""/>
         <env name="LOOKUP_TARGET_LANGUAGE" value="Spanish"/>
+        <!-- The rest of the documented defaults, for the same reason. -->
+        <env name="REVERB_ALLOWED_ORIGINS" value="*"/>
+        <env name="NEWS_ALLOW_PRIVATE_HOSTS" value="false"/>
+        <env name="REDIS_QUEUE_RETRY_AFTER" value="90"/>
+        <env name="DEBATE_QUEUE" value="debates"/>
+        <env name="DEBATE_AUDIO_DISK" value="local"/>
+        <env name="DEBATE_AUDIO_RETENTION_DAYS" value="7"/>
+        <env name="DEBATE_DAILY_TURNS" value="300"/>
+        <env name="DEBATE_STT_TIMEOUT" value="30"/>
+        <env name="DEBATE_LLM_TIMEOUT" value="30"/>
+        <env name="DEBATE_TTS_TIMEOUT" value="30"/>
+        <env name="DEBATE_TTS_FALLBACK_TIMEOUT" value="20"/>
+        <env name="DEBATE_EVAL_TIMEOUT" value="60"/>
     </php>
 </phpunit>

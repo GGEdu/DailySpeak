@@ -8,7 +8,7 @@ class ReverbConfigTest extends TestCase
 {
     private const ORIGINS_KEY = 'REVERB_ALLOWED_ORIGINS';
 
-    /** @var array{0: mixed, 1: mixed} The values phpunit.xml set, restored after each test. */
+    /** @var array{0: mixed, 1: mixed} What $_ENV and $_SERVER held for the origins key; restored after each test. */
     private array $original;
 
     protected function setUp(): void
