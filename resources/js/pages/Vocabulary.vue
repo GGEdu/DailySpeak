@@ -1,6 +1,6 @@
 <script setup>
 import { Deferred, Head, Link, router, usePage } from '@inertiajs/vue3';
-import { computed, ref, watch } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import AppLayout from '../layouts/AppLayout.vue';
 import { speak } from '../lib/lookup';
 import { timeAgo } from '../lib/time';
@@ -26,14 +26,28 @@ const explaining = ref(null);
 const expanded = ref(null);
 // Analyses already asked for, by word id.
 const meanings = ref({});
+const showButton = ref(null);
+const firstAnswer = ref(null);
 const page = usePage();
 const analysisError = computed(() => page.props.errors?.analysis);
 
 // After an answer, only what changed is sent again: the review deck and the counters, and the list page.
 const refreshed = ['due', 'stats', 'words'];
 
-// A new card starts hidden.
-watch(current, () => (revealed.value = false));
+// A new card starts hidden, and the focus goes to "Show meaning" so keyboard users keep their place.
+watch(
+    () => current.value?.id,
+    () => {
+        revealed.value = false;
+        nextTick(() => showButton.value?.focus());
+    },
+);
+
+// The meaning is announced by the live region; the focus moves to the first answer.
+function reveal() {
+    revealed.value = true;
+    nextTick(() => firstAnswer.value?.focus());
+}
 
 function answer(remembered) {
     submitting.value = true;
@@ -126,7 +140,7 @@ function remove(word) {
                 </p>
                 <p class="mt-2 text-xs text-ink-500">Level {{ current.mastery_level }} of {{ maxLevel }}</p>
 
-                <div>
+                <div aria-live="polite">
                     <div v-if="revealed" class="mx-auto mt-6 max-w-lg space-y-3">
                         <p v-if="current.translation" class="text-xl font-semibold text-speaking">{{ current.translation }}</p>
                         <p v-if="current.analysis?.definition" class="text-[15px] text-ink-200">
@@ -142,14 +156,16 @@ function remove(word) {
                 <div class="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
                     <button
                         v-if="!revealed"
+                        ref="showButton"
                         type="button"
                         class="rounded-xl border border-white/10 px-5 py-2.5 text-sm font-medium text-ink-200 transition hover:bg-white/5"
-                        @click="revealed = true"
+                        @click="reveal"
                     >
                         Show meaning
                     </button>
                     <template v-else>
                         <button
+                            ref="firstAnswer"
                             type="button"
                             :disabled="submitting"
                             class="rounded-xl border border-listening/30 px-5 py-2.5 text-sm font-semibold text-listening transition hover:bg-listening/10 disabled:opacity-50"
@@ -206,7 +222,9 @@ function remove(word) {
                             <button
                                 v-if="word.has_analysis"
                                 type="button"
-                                class="mt-1.5 text-xs font-medium text-thinking transition hover:text-ink-100"
+                                class="mt-1.5 inline-flex min-h-6 items-center text-xs font-medium text-thinking transition hover:text-ink-100"
+                                :aria-expanded="expanded === word.id ? 'true' : 'false'"
+                                :aria-label="`${expanded === word.id ? 'Hide' : 'Show'} meaning of “${word.word}”`"
                                 @click="toggle(word)"
                             >
                                 {{ expanded === word.id ? 'Hide meaning' : 'Show meaning' }}
@@ -225,7 +243,8 @@ function remove(word) {
                                 v-if="!word.has_analysis"
                                 type="button"
                                 :disabled="explaining === word.id"
-                                class="mt-1.5 text-xs font-medium text-thinking transition hover:text-ink-100 disabled:opacity-50"
+                                class="mt-1.5 inline-flex min-h-6 items-center text-xs font-medium text-thinking transition hover:text-ink-100 disabled:opacity-50"
+                                :aria-label="`Explain “${word.word}”`"
                                 @click="explainWord(word)"
                             >
                                 {{ explaining === word.id ? 'Explaining…' : 'Explain' }}
@@ -238,7 +257,8 @@ function remove(word) {
                             <span class="text-ink-500">{{ new Date(word.next_review_at) <= new Date() ? 'due now' : `review ${timeAgo(word.next_review_at)}` }}</span>
                             <button
                                 type="button"
-                                class="text-ink-500 transition hover:text-listening"
+                                class="inline-flex min-h-6 items-center text-ink-500 transition hover:text-listening"
+                                :aria-label="`Remove “${word.word}”`"
                                 @click="remove(word)"
                             >
                                 Remove
