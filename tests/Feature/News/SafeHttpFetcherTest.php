@@ -257,6 +257,39 @@ class SafeHttpFetcherTest extends TestCase
         $this->assertSame(1024, $curl[0][CURLOPT_MAXFILESIZE_LARGE]);
     }
 
+    public function test_the_body_is_asked_uncompressed_and_curl_is_told_not_to_decode_it(): void
+    {
+        $options = [];
+        $acceptEncoding = null;
+        Http::fake(['plain.example.test/*' => function ($request, array $requestOptions) use (&$options, &$acceptEncoding) {
+            $options = $requestOptions;
+            $acceptEncoding = $request->header('Accept-Encoding');
+
+            return Http::response('plain');
+        }]);
+
+        $this->assertSame('plain', $this->fetch('https://plain.example.test/feed'));
+
+        $this->assertFalse($options['decode_content'] ?? true);
+        $this->assertSame(['identity'], $acceptEncoding);
+    }
+
+    public function test_a_compressed_response_is_refused_even_when_its_compressed_bytes_are_small(): void
+    {
+        // About 1 KB on the wire, a megabyte once decoded: the limit must not be judged on the compressed size.
+        $compressed = gzencode(str_repeat('a', 1_000_000));
+        Http::fake(['zip.example.test/*' => Http::response($compressed, 200, ['Content-Encoding' => 'gzip'])]);
+
+        $this->assertThrows(fn () => $this->fetch('https://zip.example.test/feed', maxBytes: 4096), UnexpectedValueException::class);
+    }
+
+    public function test_an_identity_content_encoding_is_accepted(): void
+    {
+        Http::fake(['plain.example.test/*' => Http::response('plain', 200, ['Content-Encoding' => 'identity'])]);
+
+        $this->assertSame('plain', $this->fetch('https://plain.example.test/feed'));
+    }
+
     public function test_a_download_cut_off_by_the_size_limit_is_too_large_and_is_not_retried(): void
     {
         $attempts = 0;

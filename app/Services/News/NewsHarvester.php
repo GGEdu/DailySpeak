@@ -3,6 +3,7 @@
 namespace App\Services\News;
 
 use App\Ai\Agents\NewsSummarizer;
+use App\Ai\QuotedText;
 use App\Models\NewsArticle;
 use App\Models\NewsSource;
 use Carbon\CarbonInterface;
@@ -247,9 +248,10 @@ class NewsHarvester
      */
     private function summarise(FeedItem $item, string $text): ?array
     {
-        // The page text is data, not instructions: the closing marker is removed so it cannot end the block early.
-        $delimited = str_ireplace(self::TEXT_CLOSE, '', $text);
-        $response = NewsSummarizer::make()->prompt("Title: {$item->title}\n\n".self::TEXT_OPEN."\n{$delimited}\n".self::TEXT_CLOSE);
+        // The title and the page text are data, not instructions: their angle brackets are escaped (QuotedText), so
+        // no marker can end the block early. The title sits inside the block with the text.
+        $data = 'Title: '.QuotedText::escape($item->title)."\n\n".QuotedText::escape($text);
+        $response = NewsSummarizer::make()->prompt(self::TEXT_OPEN."\n{$data}\n".self::TEXT_CLOSE);
 
         if (($response['is_article'] ?? false) !== true) {
             return null;
