@@ -51,6 +51,8 @@ En Sail, el servicio `scheduler` ejecuta `php artisan schedule:work` de forma co
 * * * * * cd /ruta/a/dailyspeak && php artisan schedule:run >> /dev/null 2>&1
 ```
 
+Ejecútalo con el mismo usuario que PHP-FPM: cada tarea escribe su salida en `storage/logs/schedule-*.log`.
+
 ```bash
 ./vendor/bin/sail artisan news:fetch                 # todas las fuentes activas
 ./vendor/bin/sail artisan news:fetch --source=2      # solo una fuente (aunque esté pausada)
@@ -71,14 +73,19 @@ Configuración (`.env`):
 
 Las fuentes RSS se guardan en la tabla `news_sources` y se gestionan desde **/admin/sources** (solo administradores): alta con validación (el feed se descarga y se comprueba antes de guardarlo), pausar/activar, eliminar y «Fetch now» para leer una fuente al momento por la cola. La migración crea BBC News – World como fuente inicial; úsala solo en desarrollo, ya que sus condiciones exigen licencia para uso comercial.
 
-El prompt de resumen está en `config/prompts.php`. Los artículos ya guardados no se vuelven a resumir, y los que no tienen texto suficiente en su página (vídeos, directos) se omiten en lugar de resumirse a partir de la entradilla del RSS.
+El prompt de resumen está en `config/prompts.php`. Los artículos ya guardados no se vuelven a resumir, y las páginas que no son artículos se descartan antes de pagar el resumen: por la URL (`/video`, `/live`, `/audio`, `/podcast`), por tener menos de 3 párrafos, o porque el modelo responde `is_article: false`. El texto de la página va al modelo delimitado y declarado como dato, y el resumen se valida (longitud, sin enlaces, el vocabulario tiene que estar en el texto) antes de guardarlo.
+
+- **Fallos visibles:** una descarga que falla (403, 429, 5xx, tiempo agotado) cuenta como fallo y queda en `last_error` de la fuente, también si otros artículos sí entraron; `last_fetched_at` se escribe al terminar. El comando sale con error si una fuente no entrega nada.
+- **Sin pagar dos veces:** un resumen que falla se recuerda 24 h por URL, y tras 3 fallos seguidos se deja la fuente para el día siguiente. Una pasada completa tiene un tope de 1 hora.
+- **Enlaces canónicos:** se quitan `utm_*`, `at_*`, `traffic_source`, `fbclid` y el `#fragmento`, para reconocer el mismo artículo aunque el feed cambie el enlace.
 
 ## Búsqueda de noticias (Meilisearch)
 
 El buscador del feed (`/feed?q=…`) consulta todas las noticias, no solo las 20 últimas, con Laravel Scout y Meilisearch: tolera erratas («productivty» encuentra «productivity»), exige que aparezcan todas las palabras y ordena los resultados de más reciente a más antiguo. Busca en el título, el vocabulario clave y el resumen, por ese orden de importancia (`config/scout.php`).
 
 - Los artículos se indexan en segundo plano (cola `default`) al crearse, modificarse o borrarse, así que el recolector nunca espera al buscador.
-- Si Meilisearch no responde, el feed sigue funcionando con una búsqueda simple en PostgreSQL (`ILIKE` sobre título y resumen) y el error queda en el log.
+- Si Meilisearch no responde en 3 s (1 s para conectar), el feed sigue funcionando con una búsqueda en PostgreSQL (`ILIKE` sobre título y resumen, con índices trigram de `pg_trgm`) y el error queda en el log.
+- La consulta se recorta a 100 caracteres y cada usuario puede buscar 30 veces por minuto.
 - Tras cambiar los ajustes del índice: `sail artisan scout:sync-index-settings`. Para reindexar todo: `sail artisan scout:import "App\Models\NewsArticle"`.
 - En producción, define `MEILISEARCH_KEY` (la *master key* o una clave con permisos de búsqueda e indexado).
 - Limitación: Meilisearch no reduce las palabras a su raíz, así que «geoengineering» no encuentra «geoengineer» (sí lo hace «geoengineer» o el prefijo «geoengin»).
@@ -170,14 +177,17 @@ En cualquier texto marcado con `data-selectable` (resúmenes y títulos del feed
 
 Aplicado:
 
-- Las grabaciones de voz de los usuarios se borran a los **7 días** (`DEBATE_AUDIO_RETENTION_DAYS`) con `debates:prune-recordings`, programado a las 04:00 (hora de Madrid). Se conservan las transcripciones y las respuestas sintetizadas del tutor. También se borran las grabaciones huérfanas (turnos sin voz o fallidos).
+- Las grabaciones de voz de los usuarios se borran a los **7 días** (`DEBATE_AUDIO_RETENTION_DAYS`) con `debates:prune-recordings`, programado a las 04:00 (hora de Madrid). Las respuestas sintetizadas del tutor, también (`PRIVACY_REPLIES_RETENTION_DAYS`; vacía, la misma retención). También se borran los ficheros huérfanos (turnos sin voz o fallidos, debates que ya no existen). La retención mínima es de 1 día: un valor vacío o 0 no borra grabaciones en curso.
+- Las transcripciones y los informes se conservan mientras exista la cuenta (`PRIVACY_TRANSCRIPTS_RETENTION_DAYS=0`, sin caducidad).
+- En *Settings*, el usuario puede **descargar sus datos** (JSON con perfil, debates, transcripciones, informes y vocabulario; sin audio) y **borrar su cuenta** con su contraseña: se borran en cascada debates, mensajes, vocabulario, sesiones y tokens, y los ficheros de audio de sus debates.
 - Las grabaciones se guardan en disco privado y solo se sirven con URLs firmadas que caducan.
 
 Pendiente de ampliar:
 
 - [ ] Consentimiento explícito al registrarse (tratamiento de voz y envío a proveedores de IA).
 - [ ] Transferencias internacionales: el audio y las transcripciones se envían a OpenAI/Google/NVIDIA; revisar contratos (DPA) y la base legal.
-- [ ] Borrado de cuenta por el usuario (la base de datos ya borra en cascada debates, mensajes y vocabulario) y exportación de sus datos.
+- [x] Borrado de cuenta por el usuario y exportación de sus datos.
+- [ ] Decidir un plazo de conservación de las transcripciones (hoy, mientras exista la cuenta).
 - [ ] Política de retención de transcripciones, informes de fluidez y audios del tutor.
 - [ ] Registro de actividades de tratamiento y política de privacidad pública.
 
@@ -224,7 +234,21 @@ No uses el driver `openai` para el texto: llama a la Responses API (`/responses`
 - `REDIS_QUEUE_RETRY_AFTER` mayor que el timeout del job de voz (120 s), o un turno lento se procesa dos veces. «Fetch now» usa su propia conexión (`news`, `NEWS_QUEUE_RETRY_AFTER`, 1800 s) y su supervisor de Horizon.
 - El correo tiene que salir de verdad (`MAIL_*`): sin él nadie puede verificar su cuenta ni recuperar la contraseña.
 - `REVERB_ALLOWED_ORIGINS` con el host público.
-- Las descargas de feeds y artículos rechazan direcciones privadas o reservadas (`NEWS_ALLOW_PRIVATE_HOSTS=true` solo para desarrollo).
+- Las descargas de feeds y artículos rechazan direcciones privadas o reservadas, y se conectan a la IP ya comprobada (contra DNS rebinding). `NEWS_ALLOW_PRIVATE_HOSTS=true` es solo para desarrollo: en producción lanza una excepción. Como segunda barrera conviene un cortafuegos de salida que no deje al usuario de PHP llegar a la red interna salvo a lo que necesite (la pasarela de IA, el DNS).
+- Cabeceras de seguridad en todas las páginas: CSP con nonce de Vite (sin CSP mientras corre `npm run dev`), `frame-ancestors 'none'`, `nosniff`, `Referrer-Policy` y `Permissions-Policy` con el micrófono solo para este sitio. La CSP deja pasar el WebSocket a `VITE_REVERB_HOST`/`VITE_REVERB_PORT`, que deben ser los del build.
+- Tras desplegar: `php artisan horizon:terminate` (o reiniciar Horizon) para que cargue el supervisor `debates`, `php artisan scout:sync-index-settings` y, la primera vez, `php artisan news:check-policies`.
+
+**Límites y avisos**
+
+| Variable | Por defecto | Qué hace |
+|---|---|---|
+| `AI_DAILY_GLOBAL_LIMIT` | `1000` | Llamadas de IA al día entre todos los usuarios (traducciones, análisis, turnos de voz, informes). Los admins no cuentan. Al agotarse se registra un `critical` |
+| `REGISTRATIONS_PER_IP_PER_DAY` | `10` | Cuentas nuevas por IP y día |
+| `HORIZON_NOTIFICATIONS_EMAIL` | vacía | Correo para los avisos de Horizon (esperas largas y trabajos fallidos, uno por clase cada 15 min); vacía, sin correo (los fallos se registran igual como `critical`) |
+| `HEALTHCHECKS_SCHEDULER_URL` | vacía | Latido del scheduler cada minuto |
+| `HEALTHCHECKS_NEWS_FETCH_URL`, `HEALTHCHECKS_PRUNE_RECORDINGS_URL`, `HEALTHCHECKS_HORIZON_SNAPSHOT_URL`, `HEALTHCHECKS_PRUNE_FAILED_URL`, `HEALTHCHECKS_CHECK_POLICIES_URL` | vacías | URL de *ping* de cada tarea programada en un monitor tipo [Healthchecks](https://healthchecks.io): `/start` al empezar, la URL al terminar bien y `/fail` si falla |
+
+Cada tarea programada guarda su salida en `storage/logs/schedule-*.log` (conviene rotarlos) y deja un `critical` en el log si falla. Las contraseñas tienen 12 caracteres como mínimo (y en producción se comprueban contra filtraciones conocidas); el login admite 6 intentos por minuto por email e IP y 30 por hora por email.
 
 ## Administradores
 
@@ -233,7 +257,9 @@ No uses el driver `openai` para el texto: llama a la Responses API (`/responses`
 ./vendor/bin/sail artisan user:admin tu@email.com --revoke   # retirar
 ```
 
-Los administradores gestionan las fuentes de noticias (cada una con su categoría, que se usa para filtrar el feed), no tienen límite de turnos de voz (el resto: 20 por minuto y 300 al día) y pueden abrir Horizon fuera de local. El usuario de prueba del seeder es administrador.
+Los administradores gestionan las fuentes de noticias (cada una con su categoría, que se usa para filtrar el feed), no tienen límite de turnos de voz (el resto: 20 por minuto y 300 al día) ni cuentan para el tope diario de IA, y pueden abrir Horizon fuera de local. El usuario de prueba del seeder es administrador (el seeder no hace nada en producción).
+
+**Política de uso de cada fuente.** Al dar de alta una fuente, la app lee el `robots.txt` del feed y de sus artículos y avisa, solo en el panel de administración, si prohíbe a los agentes de IA o el uso para entrenar o resumir con IA, o si el editor tiene condiciones conocidas (`config/source_policies.php`: licencias sin derivados, uso personal no comercial…). El aviso nunca bloquea el alta ni la recogida y los usuarios no lo ven. Cada fuente tiene un botón para volver a comprobarla; `news:check-policies` las revisa todas (programado los lunes a las 05:00). No es asesoría legal: es un recordatorio para quien decide qué fuentes usar.
 
 Las cuentas nuevas reciben un enlace de verificación por correo y no pueden usar la app hasta abrirlo.
 
@@ -243,8 +269,10 @@ Los tests usan la base de datos `testing` del contenedor de PostgreSQL (Sail la 
 
 ```bash
 ./vendor/bin/sail artisan test
-npm test                      # lógica de texto, audio y foco del frontend (node --test, sin dependencias)
+npm test                      # lógica del frontend: turno de voz, grabación, texto, audio, foco (node --test)
 ```
+
+`.github/workflows/ci.yml` ejecuta en cada push y PR a `main` los tests de PHP (8.4 y 8.5, con PostgreSQL 17), el build y los tests del frontend, `composer audit` y `npm audit`. `phpunit.xml` fija todas las variables que cambian el resultado, para que un `.env` local no lo altere.
 
 ## Modelo de datos
 
@@ -253,7 +281,7 @@ npm test                      # lógica de texto, audio y foco del frontend (nod
 | `users`             | `User`           | `current_level` → enum `EnglishLevel` (B1, B2, C1) |
 | `news_articles`     | `NewsArticle`    | `key_vocabulary` (`jsonb`) → `array`; `source_url` único |
 | `debates`           | `Debate`         | `status` → enum `DebateStatus`; `ai_feedback` (`jsonb`) → `array`; `started_at` / `ended_at` |
-| `debate_messages`   | `DebateMessage`  | `role` → enum `MessageRole`; solo `created_at` (mensajes inmutables) |
+| `debate_messages`   | `DebateMessage`  | `role` → enum `MessageRole`; solo `created_at`; `reply_to_id` (único) enlaza cada respuesta del tutor con su turno, así un turno se contesta una sola vez |
 | `user_vocabularies` | `UserVocabulary` | `mastery_level` 1–5 (CHECK en Postgres); `word` único por usuario |
 
 ## Roadmap
