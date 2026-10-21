@@ -128,7 +128,7 @@ class WordLookupTest extends TestCase
         $this->postJson('/api/lookups', ['text' => 'nuance'])->assertOk()->assertJsonPath('translation', 'matiz');
     }
 
-    public function test_lookups_are_rate_limited_per_minute_and_per_day(): void
+    public function test_lookups_are_rate_limited_per_minute(): void
     {
         WordExplainer::fake([self::EXPLANATION])->preventStrayPrompts();
         Sanctum::actingAs(User::factory()->create());
@@ -141,7 +141,25 @@ class WordLookupTest extends TestCase
 
         $this->travel(2)->minutes();
         $this->postJson('/api/lookups', ['text' => 'nuance'])->assertOk();
-        $this->assertGreaterThan(AppServiceProvider::LOOKUPS_PER_MINUTE, AppServiceProvider::LOOKUPS_PER_DAY);
+    }
+
+    public function test_lookups_are_capped_per_day_even_when_spread_over_minutes(): void
+    {
+        WordExplainer::fake([self::EXPLANATION])->preventStrayPrompts();
+        Sanctum::actingAs(User::factory()->create());
+
+        // Pause between minutes so the per-minute limit never applies: only the daily cap can stop the last lookup.
+        for ($i = 0; $i < AppServiceProvider::LOOKUPS_PER_DAY; $i++) {
+            if ($i > 0 && $i % AppServiceProvider::LOOKUPS_PER_MINUTE === 0) {
+                $this->travel(2)->minutes();
+            }
+
+            $this->postJson('/api/lookups', ['text' => 'nuance'])->assertOk();
+        }
+
+        $this->postJson('/api/lookups', ['text' => 'nuance'])
+            ->assertTooManyRequests()
+            ->assertHeader('Retry-After');
     }
 
     public function test_a_provider_failure_is_reported_as_unavailable(): void
