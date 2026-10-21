@@ -42,6 +42,29 @@ class AppServiceProviderTest extends TestCase
         Log::shouldHaveReceived('warning')->once()->with(Mockery::pattern('/DEBATE_LLM_OPTIONS/'));
     }
 
+    public function test_the_default_voice_turn_budget_fits_in_the_job_timeout(): void
+    {
+        Log::spy();
+        $provider = $this->app->getProvider(AppServiceProvider::class);
+
+        $provider->boot();
+
+        Log::shouldNotHaveReceived('warning', [Mockery::pattern('/voice turn/')]);
+    }
+
+    public function test_a_voice_turn_budget_that_reaches_the_job_timeout_is_logged_once_an_hour(): void
+    {
+        // 45 + 30 + 30 + 20 + 2 x 3 + 3 = 134 seconds, but ProcessVoiceDebate stops at 120.
+        config(['debate.stt.timeout' => 45]);
+        Log::spy();
+        $provider = $this->app->getProvider(AppServiceProvider::class);
+
+        $provider->boot();
+        $provider->boot();
+
+        Log::shouldHaveReceived('warning')->once()->with(Mockery::pattern('/voice turn may need 134/'));
+    }
+
     private function checksBreaches(Password $rule): bool
     {
         return (new ReflectionProperty(Password::class, 'uncompromised'))->getValue($rule);

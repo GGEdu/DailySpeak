@@ -117,19 +117,46 @@ class AuthenticationTest extends TestCase
         $this->post('/login', ['email' => $user->email, 'password' => 'wrong-password'])->assertStatus(429);
     }
 
-    public function test_one_email_is_limited_per_hour_whatever_the_address(): void
+    public function test_failures_from_other_addresses_do_not_lock_the_owner_of_an_email_out(): void
     {
-        $user = User::factory()->create();
+        $user = User::factory()->create(['password' => 'correct-horse-battery-staple']);
 
-        foreach (range(1, AppServiceProvider::LOGINS_PER_EMAIL_PER_HOUR) as $attempt) {
+        foreach (range(1, AppServiceProvider::FAILED_LOGINS_PER_EMAIL_AND_ADDRESS_PER_HOUR) as $attempt) {
             $this->withServerVariables(['REMOTE_ADDR' => "10.1.0.{$attempt}"])
                 ->post('/login', ['email' => $user->email, 'password' => 'wrong-password'])
                 ->assertRedirect();
         }
 
+        // Someone who only knows the email cannot lock its owner out: the owner signs in from another address.
         $this->withServerVariables(['REMOTE_ADDR' => '10.1.0.250'])
-            ->post('/login', ['email' => $user->email, 'password' => 'wrong-password'])
-            ->assertStatus(429);
+            ->post('/login', ['email' => $user->email, 'password' => 'correct-horse-battery-staple'])
+            ->assertRedirect();
+
+        $this->assertAuthenticatedAs($user);
+    }
+
+    public function test_failed_logins_from_one_address_stop_only_that_address_for_an_hour(): void
+    {
+        $user = User::factory()->create(['password' => 'correct-horse-battery-staple']);
+        $guest = ['REMOTE_ADDR' => '10.1.0.1'];
+
+        // Six wrong passwords a minute for five minutes: thirty failures from one address.
+        foreach (range(1, 5) as $minute) {
+            foreach (range(1, AppServiceProvider::LOGINS_PER_EMAIL_AND_ADDRESS_PER_MINUTE) as $attempt) {
+                $this->withServerVariables($guest)
+                    ->post('/login', ['email' => $user->email, 'password' => 'wrong-password'])
+                    ->assertRedirect();
+            }
+
+            $this->travel(2)->minutes();
+        }
+
+        // That address is refused for the rest of the hour, even with the right password.
+        $this->withServerVariables($guest)
+            ->post('/login', ['email' => $user->email, 'password' => 'correct-horse-battery-staple'])
+            ->assertSessionHasErrors('email');
+
+        $this->assertGuest();
     }
 
     public function test_one_address_can_open_only_a_limited_number_of_accounts_a_day(): void

@@ -61,7 +61,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         ->can('view', 'debate')
         ->name('debates.show');
     Route::post('/debates/{debate}/finish', [DebateSessionController::class, 'finish'])
-        ->middleware('throttle:ai-budget') // the report is an AI call
+        ->middleware('throttle:debate-finish') // each report is a paid evaluation
         ->can('finish', 'debate')
         ->name('debates.finish');
 
@@ -70,7 +70,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         ->can('update', 'vocabulary')
         ->name('vocabulary.review');
     Route::post('/vocabulary/{vocabulary}/analyze', [VocabularyController::class, 'analyze'])
-        ->middleware(['throttle:lookups', 'throttle:ai-budget'])
+        ->middleware('throttle:lookups')
         ->can('update', 'vocabulary')
         ->name('vocabulary.analyze');
     Route::delete('/vocabulary/{vocabulary}', [VocabularyController::class, 'destroy'])

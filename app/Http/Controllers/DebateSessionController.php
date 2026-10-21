@@ -8,6 +8,7 @@ use App\Http\Resources\NewsArticleResource;
 use App\Jobs\EvaluateDebate;
 use App\Models\Debate;
 use App\Models\NewsArticle;
+use App\Services\AiBudget;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -47,8 +48,14 @@ class DebateSessionController extends Controller
     /**
      * Finish the debate and queue its fluency report (or retry a report that failed).
      */
-    public function finish(Debate $debate): RedirectResponse
+    public function finish(Request $request, Debate $debate, AiBudget $budget): RedirectResponse
     {
+        // The report is the paid call. It is taken from the budget before the debate is closed, so a refusal
+        // leaves the debate open for another try.
+        if (! $budget->spend($request->user())) {
+            return back()->withErrors(['finish' => AiBudget::USED_UP_MESSAGE]);
+        }
+
         $debate->finish();
 
         EvaluateDebate::dispatch($debate);

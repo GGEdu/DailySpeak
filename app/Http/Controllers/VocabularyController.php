@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Jobs\AnalyzeVocabulary;
 use App\Models\UserVocabulary;
+use App\Services\AiBudget;
 use App\Services\Vocabulary\WordLookup;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Http\RedirectResponse;
@@ -142,10 +143,15 @@ class VocabularyController extends Controller
     /**
      * Explain a word that has no analysis yet (e.g. one recommended in a fluency report).
      */
-    public function analyze(UserVocabulary $vocabulary, WordLookup $lookup): RedirectResponse
+    public function analyze(Request $request, UserVocabulary $vocabulary, WordLookup $lookup, AiBudget $budget): RedirectResponse
     {
         if ($vocabulary->analysis !== null) {
             return back();
+        }
+
+        // Explaining the word is the paid call: it is taken from the budget first, and the page is told when it is gone.
+        if (! $budget->spend($request->user())) {
+            return back()->withErrors(['analysis' => AiBudget::USED_UP_MESSAGE]);
         }
 
         try {

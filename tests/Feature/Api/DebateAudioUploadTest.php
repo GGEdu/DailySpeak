@@ -7,6 +7,7 @@ use App\Models\Debate;
 use App\Models\DebateMessage;
 use App\Models\User;
 use App\Providers\AppServiceProvider;
+use Illuminate\Contracts\Bus\Dispatcher;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\File;
@@ -14,6 +15,7 @@ use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
+use RuntimeException;
 use Tests\TestCase;
 
 class DebateAudioUploadTest extends TestCase
@@ -263,6 +265,33 @@ class DebateAudioUploadTest extends TestCase
         $this->post($this->url(), ['audio' => UploadedFile::fake()->create('turn.webm', 120, 'audio/webm'), 'turn' => $turn])->assertAccepted();
         // The turn failed for good and its recording was deleted; the retry arrives after that.
         Storage::disk('local')->deleteDirectory("debates/{$this->debate->id}/recordings");
+
+        $this->post($this->url(), ['audio' => UploadedFile::fake()->create('turn.webm', 120, 'audio/webm'), 'turn' => $turn])
+            ->assertAccepted()
+            ->assertJsonPath('turn', $turn);
+
+        Queue::assertPushedTimes(ProcessVoiceDebate::class, 1);
+    }
+
+    public function test_a_turn_whose_dispatch_fails_leaves_nothing_behind_so_the_retry_queues_it(): void
+    {
+        Sanctum::actingAs($this->user);
+        $turn = '3f9b2a6e-7c1d-4e8a-9b5f-2d6c8a1e4f70';
+
+        $healthy = app(Dispatcher::class);
+
+        // The queue is down: the job cannot be dispatched.
+        $down = \Mockery::mock(Dispatcher::class);
+        $down->shouldReceive('dispatch')->andThrow(new RuntimeException('The queue is down.'));
+        $this->app->instance(Dispatcher::class, $down);
+
+        $this->postJson($this->url(), ['audio' => UploadedFile::fake()->create('turn.webm', 120, 'audio/webm'), 'turn' => $turn])
+            ->assertStatus(500);
+
+        $this->assertSame([], Storage::disk('local')->files("debates/{$this->debate->id}/recordings"));
+
+        // The queue is back: the client's retry of the same turn is queued, not answered as already received.
+        $this->app->instance(Dispatcher::class, $healthy);
 
         $this->post($this->url(), ['audio' => UploadedFile::fake()->create('turn.webm', 120, 'audio/webm'), 'turn' => $turn])
             ->assertAccepted()

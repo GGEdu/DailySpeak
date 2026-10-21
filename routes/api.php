@@ -18,14 +18,14 @@ Route::middleware(['auth:sanctum', 'verified'])->group(function () {
 
     // Every upload costs an STT + LLM + TTS round trip, hence the rate limit (admins are exempt).
     Route::post('/debates/{debate}/audio', [DebateAudioController::class, 'store'])
-        ->middleware(['throttle:debate-audio', 'throttle:ai-budget'])
+        ->middleware('throttle:debate-audio')
         ->name('debates.audio.store');
 
     // Selecting a word in any text: translate and explain it, or save it to "Your words".
     Route::post('/lookups', WordLookupController::class)
-        ->middleware(['throttle:lookups', 'throttle:ai-budget'])
+        ->middleware('throttle:lookups')
         ->name('lookups.store');
     Route::post('/vocabulary', SaveWordController::class)
-        ->middleware(['throttle:lookups', 'throttle:ai-budget'])
+        ->middleware('throttle:lookups')
         ->name('vocabulary.store');
 });

@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Jobs\ProcessVoiceDebate;
 use App\Models\User;
 use App\Services\News\DnsHostResolver;
 use App\Services\News\HostResolver;
@@ -15,6 +16,7 @@ use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rules\Password;
+use ReflectionProperty;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -34,15 +36,20 @@ class AppServiceProvider extends ServiceProvider
     public const LOOKUPS_PER_DAY = 500;
 
     /**
+     * Debate reports a user may ask for per minute: each one is a paid evaluation.
+     */
+    public const DEBATE_FINISHES_PER_MINUTE = 5;
+
+    /**
      * Sign-in attempts for one email from one address per minute, on top of the per-address limit.
      */
     public const LOGINS_PER_EMAIL_AND_ADDRESS_PER_MINUTE = 6;
 
     /**
-     * Sign-in attempts for one email per hour from any address, so a list of addresses cannot be
-     * tried against one account.
+     * Failed sign-ins for one email from one address per hour. Only failures count, and the address is part
+     * of the key: counting every email from every address would let anyone who knows the email lock its owner out.
      */
-    public const LOGINS_PER_EMAIL_PER_HOUR = 30;
+    public const FAILED_LOGINS_PER_EMAIL_AND_ADDRESS_PER_HOUR = 30;
 
     /**
      * Register any application services.
@@ -59,36 +66,19 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->trustProxies();
         $this->warnAboutInvalidDebateOptions();
+        $this->warnAboutVoiceTurnBudget();
 
         Gate::define('admin', fn (User $user) => $user->is_admin);
 
         // At least 12 characters. The breach list is checked in production only: it calls an outside service.
         Password::defaults(fn () => app()->isProduction() ? Password::min(12)->uncompromised() : Password::min(12));
 
-        RateLimiter::for('login', fn (Request $request) => [
-            Limit::perMinute(self::LOGINS_PER_EMAIL_AND_ADDRESS_PER_MINUTE)
-                ->by('login:'.$this->loginEmail($request).'|'.$request->ip()),
-            Limit::perHour(self::LOGINS_PER_EMAIL_PER_HOUR)
-                ->by('login-email:'.$this->loginEmail($request)),
-        ]);
+        // Every attempt counts here; the failures are counted by the login controller, per email and address.
+        RateLimiter::for('login', fn (Request $request) => Limit::perMinute(self::LOGINS_PER_EMAIL_AND_ADDRESS_PER_MINUTE)
+            ->by('login:'.$this->loginEmail($request).'|'.$request->ip()));
 
         RateLimiter::for('register', fn (Request $request) => Limit::perDay(max(1, (int) config('limits.registrations_per_ip_per_day')))
             ->by('register:'.$request->ip()));
-
-        // One budget for the AI calls of all users together (routes add it as 'ai-budget'). Admins are exempt.
-        RateLimiter::for('ai-budget', fn (Request $request) => $request->user()?->is_admin
-            ? Limit::none()
-            : Limit::perDay(max(1, (int) config('limits.ai_daily_global')))
-                ->by('all')
-                ->response(function (Request $request, array $headers) {
-                    if (Cache::add('ai-budget-exhausted:'.now()->toDateString(), true, now()->endOfDay())) {
-                        Log::critical('The daily AI call budget is used up. AI routes answer 429 until it resets.');
-                    }
-
-                    return response()->json([
-                        'message' => 'The daily AI budget is used up. Try again tomorrow.',
-                    ], 429, $headers);
-                }));
 
         RateLimiter::for('lookups', function (Request $request) {
             $who = $request->user()?->id ?: $request->ip();
@@ -98,6 +88,9 @@ class AppServiceProvider extends ServiceProvider
                 Limit::perDay(self::LOOKUPS_PER_DAY)->by('day:'.$who),
             ];
         });
+
+        RateLimiter::for('debate-finish', fn (Request $request) => Limit::perMinute(self::DEBATE_FINISHES_PER_MINUTE)
+            ->by('finish:'.($request->user()?->id ?: $request->ip())));
 
         RateLimiter::for('debate-audio', function (Request $request) {
             if ($request->user()?->is_admin) {
@@ -152,6 +145,28 @@ class AppServiceProvider extends ServiceProvider
     {
         if (config('debate.llm.options_valid') === false && Cache::add('debate-llm-options-warning', true, now()->addHour())) {
             Log::warning('DEBATE_LLM_OPTIONS is not a valid JSON object, so it is ignored and the tutor uses the provider defaults.');
+        }
+    }
+
+    /**
+     * A voice turn runs STT, the tutor, TTS, the backup voice, two broadcasts and the job's overhead inside
+     * ProcessVoiceDebate. When the request timeouts add up to the job's timeout, the job is killed mid-turn, so say so
+     * once an hour. The same sum is documented in config/debate.php.
+     */
+    private function warnAboutVoiceTurnBudget(): void
+    {
+        $budget = (float) config('debate.stt.timeout')
+            + (float) config('debate.llm.timeout')
+            + (float) config('debate.tts.timeout')
+            + (float) config('debate.tts.fallback.timeout')
+            + 2 * (float) config('broadcasting.connections.reverb.client_options.timeout')
+            + ProcessVoiceDebate::OVERHEAD_SECONDS;
+
+        // The timeout is an instance property with a default, so it is read without building a job.
+        $jobTimeout = (new ReflectionProperty(ProcessVoiceDebate::class, 'timeout'))->getDefaultValue();
+
+        if ($budget >= $jobTimeout && Cache::add('voice-turn-budget-warning', true, now()->addHour())) {
+            Log::warning("A voice turn may need {$budget} seconds, but ProcessVoiceDebate stops at {$jobTimeout}. Lower the DEBATE_*_TIMEOUT values or the job's timeout is exceeded mid-turn.");
         }
     }
 }
