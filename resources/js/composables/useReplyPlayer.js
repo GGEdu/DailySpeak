@@ -1,5 +1,5 @@
 import { onBeforeUnmount, ref, shallowRef } from 'vue';
-import { audioContext, createAnalyser, resumeAudio } from '../lib/audio';
+import { audioContext, createAnalyser, resumeAudio } from '../lib/audio.js';
 
 /**
  * Plays the tutor's MP3 replies through Web Audio so the UI can visualise them.

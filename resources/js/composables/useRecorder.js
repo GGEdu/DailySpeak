@@ -1,5 +1,5 @@
 import { onBeforeUnmount, ref, shallowRef } from 'vue';
-import { audioContext, createAnalyser, preferredRecordingType, recordingBlocker } from '../lib/audio';
+import { audioContext, createAnalyser, preferredRecordingType, recordingBlocker } from '../lib/audio.js';
 
 // The message and the error name for each reason recording can fail; the page shows the message.
 const FAILURES = {
