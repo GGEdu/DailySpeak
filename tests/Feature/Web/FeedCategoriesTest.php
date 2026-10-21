@@ -112,4 +112,19 @@ class FeedCategoriesTest extends TestCase
                 ->where('articles.1.category', null)
                 ->where('articles.1.category_label', null));
     }
+
+    public function test_every_source_of_the_category_counts(): void
+    {
+        // The category filter takes the ids of all its sources, however many there are.
+        $first = NewsArticle::factory()->for(NewsSource::factory()->create(['category' => 'science']))->create(['published_at' => now()]);
+        $second = NewsArticle::factory()->for(NewsSource::factory()->create(['category' => 'science']))->create(['published_at' => now()->subDay()]);
+        NewsArticle::factory()->for(NewsSource::factory()->create(['category' => 'sport']))->create();
+
+        $this->actingAs(User::factory()->create())
+            ->get('/feed?category=science')
+            ->assertInertia(fn (Assert $page) => $page
+                ->has('articles', 2)
+                ->where('articles.0.id', $first->id)
+                ->where('articles.1.id', $second->id));
+    }
 }

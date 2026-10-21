@@ -1,6 +1,6 @@
 <script setup>
-import { Head, router } from '@inertiajs/vue3';
-import { computed, ref, watch } from 'vue';
+import { Head, router, usePage } from '@inertiajs/vue3';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import ArticleCard from '../components/ArticleCard.vue';
 import CategoryChips from '../components/CategoryChips.vue';
 import AppLayout from '../layouts/AppLayout.vue';
@@ -26,12 +26,17 @@ const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'nu
 
 const query = ref(props.search);
 let searchTimer = null;
+// The command that fetches the news by hand is for administrators.
+const isAdmin = usePage().props.auth?.user?.is_admin === true;
 
 // Search as the user types, once they pause.
 watch(query, () => {
     clearTimeout(searchTimer);
     searchTimer = setTimeout(runSearch, 300);
 });
+
+// A search still waiting for the pause must not run after the user has left the page.
+onBeforeUnmount(() => clearTimeout(searchTimer));
 
 function runSearch() {
     clearTimeout(searchTimer);
@@ -102,10 +107,11 @@ const days = computed(() => {
 
         <div v-else-if="articles.length === 0" class="mt-12 rounded-2xl border border-dashed border-white/10 p-10 text-center">
             <p class="font-medium text-ink-200">No news harvested yet</p>
-            <p class="mt-2 text-sm text-ink-400">
+            <p v-if="isAdmin" class="mt-2 text-sm text-ink-400">
                 The harvester runs every day at 03:00. To fetch stories now, run
                 <code class="rounded bg-white/5 px-1.5 py-0.5 text-ink-200">sail artisan news:fetch</code>.
             </p>
+            <p v-else class="mt-2 text-sm text-ink-400">New stories arrive every day. Check back soon.</p>
         </div>
 
         <section v-for="day in days" :key="day.label" class="mt-12">

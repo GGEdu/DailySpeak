@@ -8,6 +8,7 @@ use App\Models\NewsArticle;
 use App\Models\NewsSource;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\RateLimiter;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -19,18 +20,28 @@ class FeedController extends Controller
     private const ARTICLES = 20;
 
     /**
+     * Longest search the feed runs. Longer ones only add work for the engine and the database.
+     */
+    private const SEARCH_MAX_LENGTH = 100;
+
+    /**
+     * Searches one user may run per minute. Every pause while typing is a search.
+     */
+    private const SEARCHES_PER_MINUTE = 30;
+
+    /**
      * Show the latest harvested news, or the stories matching a search, ready to be debated.
      */
     public function __invoke(Request $request): Response
     {
-        $search = trim((string) $request->string('q'));
+        $search = $this->searchTerm($request);
         $categories = $this->categoriesWithArticles();
         // A search covers every category, so the category filter only applies to the latest news.
         $category = $search === '' ? $this->requestedCategory($request, $categories) : null;
 
         $articles = $search === ''
             ? $this->latest($category)
-            : $this->search($search);
+            : $this->search($request, $search);
         $articles->loadMissing('newsSource');
 
         $debates = $request->user()->debates()
@@ -51,6 +62,16 @@ class FeedController extends Controller
     }
 
     /**
+     * The search typed in the box, trimmed and capped. An empty one means the latest news.
+     */
+    private function searchTerm(Request $request): string
+    {
+        $term = $request->query('q');
+
+        return is_string($term) ? trim(mb_substr(trim($term), 0, self::SEARCH_MAX_LENGTH)) : '';
+    }
+
+    /**
      * The latest stories, or only those of one category.
      *
      * @return Collection<int, NewsArticle>
@@ -58,11 +79,13 @@ class FeedController extends Controller
     private function latest(?string $category): Collection
     {
         return NewsArticle::query()
-            ->when($category, fn ($query) => $query->whereHas(
-                'newsSource',
-                fn ($source) => $source->where('category', $category),
+            ->when($category, fn ($query) => $query->whereIn(
+                'news_source_id',
+                // The ids of the category's sources: cheaper than checking every article's source.
+                NewsSource::query()->where('category', $category)->pluck('id'),
             ))
             ->latest('published_at')
+            ->latest('id')
             ->limit(self::ARTICLES)
             ->get();
     }
@@ -107,8 +130,16 @@ class FeedController extends Controller
      *
      * @return Collection<int, NewsArticle>
      */
-    private function search(string $search): Collection
+    private function search(Request $request, string $search): Collection
     {
+        // Each search can reach the engine and the database, so one user cannot run them without limit.
+        if (! RateLimiter::attempt('feed-search:'.$request->user()->id, self::SEARCHES_PER_MINUTE, fn () => true)) {
+            abort(429);
+        }
+
+        // The search as a LIKE pattern: its own % and _ are escaped, so "100%" finds "100%" and not every story.
+        $pattern = '%'.addcslashes($search, '%_\\').'%';
+
         return rescue(
             fn () => NewsArticle::search($search)
                 // Every word must match (allowing typos), not just the first ones.
@@ -119,9 +150,10 @@ class FeedController extends Controller
             // The feed keeps working, with a plain text search, if the search engine is down.
             fn () => NewsArticle::query()
                 ->where(fn ($query) => $query
-                    ->whereLike('title', "%{$search}%")
-                    ->orWhereLike('summary', "%{$search}%"))
+                    ->whereLike('title', $pattern)
+                    ->orWhereLike('summary', $pattern))
                 ->latest('published_at')
+                ->latest('id')
                 ->limit(self::ARTICLES)
                 ->get(),
         );

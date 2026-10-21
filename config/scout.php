@@ -147,6 +147,9 @@ return [
                 // In order of importance: a match in the title beats one in the summary.
                 'searchableAttributes' => ['title', 'key_vocabulary', 'summary'],
                 'sortableAttributes' => ['published_at'],
+                // Newest first, as the README promises: the date decides before relevance does. Only applies to
+                // searches that sort by published_at (the feed does); the default rule order puts sort after relevance.
+                'rankingRules' => ['sort', 'words', 'typo', 'proximity', 'attribute', 'exactness'],
             ],
         ],
         'model-settings' => [

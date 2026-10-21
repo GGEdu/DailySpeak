@@ -57,11 +57,76 @@ class VocabularyTest extends TestCase
                 ->where('due.0.context', 'It could mitigate congestion.')
                 ->where('due.1.id', $dueNow->id)
                 ->has('due', 2)
-                ->where('words.0.word', 'contentious')
-                ->where('words.1.word', 'mitigate')
-                ->where('words.2.word', 'ubiquitous')
-                ->has('words', 3)
-                ->where('dueWords', 2));
+                ->where('stats.total', 3)
+                ->where('stats.due', 2)
+                ->where('dueWords', 2)
+                ->loadDeferredProps(fn (Assert $page) => $page
+                    ->where('words.data.0.word', 'contentious')
+                    ->where('words.data.1.word', 'mitigate')
+                    ->where('words.data.2.word', 'ubiquitous')
+                    ->has('words.data', 3)));
+    }
+
+    public function test_the_card_shows_at_most_fifty_due_words_but_counts_them_all(): void
+    {
+        $user = User::factory()->create();
+        UserVocabulary::factory(60)->for($user)->create(['next_review_at' => now()->subHour()]);
+
+        $this->actingAs($user)
+            ->get('/vocabulary')
+            ->assertInertia(fn (Assert $page) => $page
+                ->has('due', 50)
+                ->where('stats.due', 60)
+                ->where('stats.total', 60));
+    }
+
+    public function test_the_full_list_comes_deferred_one_page_at_a_time_without_analyses(): void
+    {
+        $user = User::factory()->create();
+        UserVocabulary::factory(51)->for($user)->create(['analysis' => ['definition' => 'Long analysis.']]);
+
+        $this->actingAs($user)
+            ->get('/vocabulary')
+            ->assertInertia(fn (Assert $page) => $page
+                ->missing('words')
+                ->loadDeferredProps(fn (Assert $page) => $page
+                    ->has('words.data', 50)
+                    ->where('words.current_page', 1)
+                    ->where('words.last_page', 2)
+                    ->missing('words.data.0.analysis')
+                    ->where('words.data.0.has_analysis', true)));
+
+        $this->actingAs($user)
+            ->get('/vocabulary?page=2')
+            ->assertInertia(fn (Assert $page) => $page
+                ->loadDeferredProps(fn (Assert $page) => $page
+                    ->has('words.data', 1)
+                    ->where('words.current_page', 2)));
+    }
+
+    public function test_the_meaning_of_a_word_is_only_sent_when_it_is_asked_for(): void
+    {
+        $word = UserVocabulary::factory()->create(['analysis' => ['definition' => 'A subtle difference.', 'part_of_speech' => 'noun']]);
+
+        $this->actingAs($word->user)
+            ->get("/vocabulary?explain={$word->id}")
+            ->assertInertia(fn (Assert $page) => $page
+                ->missing('explanation')
+                ->reloadOnly('explanation', fn (Assert $page) => $page
+                    ->where('explanation.id', $word->id)
+                    ->where('explanation.analysis.definition', 'A subtle difference.')));
+    }
+
+    public function test_a_meaning_asked_for_by_someone_else_is_not_sent(): void
+    {
+        $word = UserVocabulary::factory()->create(['analysis' => ['definition' => 'Private.']]);
+
+        $this->actingAs(User::factory()->create())
+            ->get("/vocabulary?explain={$word->id}")
+            ->assertInertia(fn (Assert $page) => $page
+                ->reloadOnly('explanation', fn (Assert $page) => $page
+                    ->where('explanation.id', null)
+                    ->where('explanation.analysis', null)));
     }
 
     public function test_reviewing_a_word_records_the_answer(): void
@@ -97,15 +162,20 @@ class VocabularyTest extends TestCase
         $this->assertSame(2, $word->fresh()->mastery_level);
     }
 
-    public function test_the_page_shows_each_words_translation_and_analysis(): void
+    public function test_the_list_shows_each_words_translation_and_whether_it_has_a_meaning(): void
     {
         $word = UserVocabulary::factory()->create(['word' => 'nuance', 'translation' => 'matiz', 'analysis' => ['definition' => 'A subtle difference.']]);
+        $unexplained = UserVocabulary::factory()->for($word->user)->create(['word' => 'zeal', 'analysis' => null]);
 
         $this->actingAs($word->user)
             ->get('/vocabulary')
             ->assertInertia(fn (Assert $page) => $page
-                ->where('words.0.translation', 'matiz')
-                ->where('words.0.analysis.definition', 'A subtle difference.'));
+                ->loadDeferredProps(fn (Assert $page) => $page
+                    ->where('words.data.0.id', $word->id)
+                    ->where('words.data.0.translation', 'matiz')
+                    ->where('words.data.0.has_analysis', true)
+                    ->where('words.data.1.id', $unexplained->id)
+                    ->where('words.data.1.has_analysis', false)));
     }
 
     public function test_a_word_without_analysis_can_be_analysed_on_demand(): void
