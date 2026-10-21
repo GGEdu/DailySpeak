@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Rules\VocabularySelection;
+use App\Services\AiBudget;
 use App\Services\Vocabulary\WordLookup;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -13,12 +14,17 @@ use Throwable;
  */
 class WordLookupController extends Controller
 {
-    public function __invoke(Request $request, WordLookup $lookup): JsonResponse
+    public function __invoke(Request $request, WordLookup $lookup, AiBudget $budget): JsonResponse
     {
         $data = $request->validate([
             'text' => ['required', 'string', 'max:200', new VocabularySelection],
             'context' => ['nullable', 'string', 'max:2000'],
         ]);
+
+        // The lookup may call the AI, so the call is taken from the budget first. A refused request costs nothing.
+        if (! $budget->spend($request->user())) {
+            return response()->json(['message' => AiBudget::USED_UP_MESSAGE], 429);
+        }
 
         $text = WordLookup::normalise($data['text']);
 

@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Jobs\AnalyzeVocabulary;
 use App\Rules\VocabularySelection;
+use App\Services\AiBudget;
 use App\Services\Vocabulary\WordLookup;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -14,7 +15,7 @@ use Illuminate\Support\Str;
  */
 class SaveWordController extends Controller
 {
-    public function __invoke(Request $request): JsonResponse
+    public function __invoke(Request $request, AiBudget $budget): JsonResponse
     {
         $data = $request->validate([
             'word' => ['required', 'string', 'max:200', new VocabularySelection],
@@ -22,10 +23,18 @@ class SaveWordController extends Controller
         ]);
 
         $context = filled($data['context'] ?? null) ? Str::limit(trim($data['context']), config('lookup.max_context_characters'), '') : null;
+        $lemma = mb_strtolower(WordLookup::normalise($data['word']));
+
+        // A word that is new, or not analysed yet, queues an analysis: that call is taken from the budget first.
+        $saved = $request->user()->vocabularies()->where('word', $lemma)->first();
+
+        if (($saved === null || $saved->analysis === null) && ! $budget->spend($request->user())) {
+            return response()->json(['message' => AiBudget::USED_UP_MESSAGE], 429);
+        }
 
         // createOrFirst: two quick clicks on the same word race for the unique index; the loser gets the saved row.
         $word = $request->user()->vocabularies()->createOrFirst(
-            ['word' => mb_strtolower(WordLookup::normalise($data['word']))],
+            ['word' => $lemma],
             // Due straight away: the first review is the moment the user saved it.
             ['context' => $context, 'next_review_at' => now()],
         );

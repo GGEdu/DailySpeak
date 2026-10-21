@@ -75,21 +75,6 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('register', fn (Request $request) => Limit::perDay(max(1, (int) config('limits.registrations_per_ip_per_day')))
             ->by('register:'.$request->ip()));
 
-        // One budget for the AI calls of all users together (routes add it as 'ai-budget'). Admins are exempt.
-        RateLimiter::for('ai-budget', fn (Request $request) => $request->user()?->is_admin
-            ? Limit::none()
-            : Limit::perDay(max(1, (int) config('limits.ai_daily_global')))
-                ->by('all')
-                ->response(function (Request $request, array $headers) {
-                    if (Cache::add('ai-budget-exhausted:'.now()->toDateString(), true, now()->endOfDay())) {
-                        Log::critical('The daily AI call budget is used up. AI routes answer 429 until it resets.');
-                    }
-
-                    return response()->json([
-                        'message' => 'The daily AI budget is used up. Try again tomorrow.',
-                    ], 429, $headers);
-                }));
-
         RateLimiter::for('lookups', function (Request $request) {
             $who = $request->user()?->id ?: $request->ip();
 
