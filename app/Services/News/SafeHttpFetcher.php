@@ -156,9 +156,13 @@ class SafeHttpFetcher
         $request = Http::timeout(self::TIMEOUT_SECONDS)
             ->connectTimeout(self::CONNECT_TIMEOUT_SECONDS)
             ->withUserAgent(config('app.name').'/1.0 (+'.config('app.url').')')
+            // Only an uncompressed body is asked for: the size limit counts the bytes on the wire, which is then the body.
+            ->withHeaders(['Accept-Encoding' => 'identity'])
             ->withOptions([
                 // Redirects are followed here, one checked hop at a time.
                 'allow_redirects' => false,
+                // Guzzle would have curl decode gzip, br and zstd bodies, and the size limit does not count decoded bytes.
+                'decode_content' => false,
                 'curl' => $curl,
             ]);
 
@@ -239,6 +243,10 @@ class SafeHttpFetcher
      */
     private function readBody(Response $response, int $maxBytes): string
     {
+        if ($this->isCompressed($response)) {
+            throw new UnexpectedValueException('The response is compressed; only an uncompressed body is accepted.');
+        }
+
         if ((int) $response->header('Content-Length') > $maxBytes) {
             throw $this->tooLarge($maxBytes);
         }
@@ -257,6 +265,17 @@ class SafeHttpFetcher
         }
 
         return $body;
+    }
+
+    /**
+     * A compressed body is refused rather than decoded: decoding it here would have to count the decoded bytes
+     * against the limit, and a server that ignores "identity" would otherwise be stored as compressed bytes.
+     */
+    private function isCompressed(Response $response): bool
+    {
+        $encoding = strtolower(trim($response->header('Content-Encoding')));
+
+        return $encoding !== '' && $encoding !== 'identity';
     }
 
     private function tooLarge(int $maxBytes): UnexpectedValueException
