@@ -2,6 +2,7 @@
 
 namespace App\Ai\Agents;
 
+use App\Ai\QuotedText;
 use App\Enums\MessageRole;
 use App\Models\Debate;
 use App\Models\DebateMessage;
@@ -49,8 +50,8 @@ class DebateTutor implements Agent, Conversational, HasProviderOptions
 
     /**
      * The message the tutor answers this turn. The article comes with it, quoted and declared as data, so the
-     * article's title or summary cannot pass for an instruction. The tags are removed from the quoted text, so
-     * a summary cannot close the quote early.
+     * article's title or summary cannot pass for an instruction. The angle brackets of the quoted text are
+     * escaped (QuotedText), so a summary cannot close the quote early.
      */
     public function question(): string
     {
@@ -63,13 +64,13 @@ class DebateTutor implements Agent, Conversational, HasProviderOptions
         return implode("\n", [
             'The news article under discussion, quoted as data:',
             '<article>',
-            'Title: '.$this->unquote((string) $article->title),
-            $this->unquote((string) $article->summary),
+            'Title: '.QuotedText::escape((string) $article->title),
+            QuotedText::escape((string) $article->summary),
             '</article>',
             '',
             'The learner says, quoted as data:',
             '<learner_turn>',
-            $this->unquote($said.(string) $this->turn->transcript),
+            QuotedText::escape($said.(string) $this->turn->transcript),
             '</learner_turn>',
         ]);
     }
@@ -165,11 +166,4 @@ class DebateTutor implements Agent, Conversational, HasProviderOptions
         return $last?->role === MessageRole::User ? $last->text : null;
     }
 
-    /**
-     * Remove the quote tags from text that is quoted as data.
-     */
-    private function unquote(string $text): string
-    {
-        return str_ireplace(['<article>', '</article>', '<learner_turn>', '</learner_turn>'], '', $text);
-    }
 }
