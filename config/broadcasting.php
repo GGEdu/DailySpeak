@@ -43,6 +43,10 @@ return [
             ],
             'client_options' => [
                 // Guzzle client options: https://docs.guzzlephp.org/en/stable/request-options.html
+                // A broadcast runs inside a voice turn (ProcessVoiceDebate), so it gives up fast: it cannot
+                // hold the job, and the reply is already stored when it fails.
+                'timeout' => 3,
+                'connect_timeout' => 2,
             ],
         ],
 
