@@ -2,7 +2,9 @@
 
 namespace App\Ai\Agents;
 
+use App\Enums\EnglishLevel;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
+use Illuminate\Support\Str;
 use Laravel\Ai\Contracts\Agent;
 use Laravel\Ai\Contracts\HasStructuredOutput;
 use Laravel\Ai\Promptable;
@@ -21,11 +23,30 @@ class DebateEvaluator implements Agent, HasStructuredOutput
     public const RECOMMENDED_WORDS = 3;
 
     /**
+     * Most crutch words kept from the answer.
+     */
+    public const MAX_CRUTCH_WORDS = 8;
+
+    /**
+     * Most grammar errors kept from the answer.
+     */
+    public const MAX_GRAMMAR_ERRORS = 10;
+
+    /**
+     * @param  EnglishLevel  $level  The learner's level: the recommendations go just above it.
+     */
+    public function __construct(public EnglishLevel $level) {}
+
+    /**
      * Get the instructions that the agent should follow.
      */
     public function instructions(): Stringable|string
     {
-        return config('prompts.debate_evaluator');
+        return strtr(config('prompts.debate_evaluator'), [
+            ':level_name' => Str::lower($this->level->label()),
+            ':level' => $this->level->value,
+            ':recommended_words' => (string) self::RECOMMENDED_WORDS,
+        ]);
     }
 
     /**

@@ -23,7 +23,8 @@ class SaveWordController extends Controller
 
         $context = filled($data['context'] ?? null) ? Str::limit(trim($data['context']), config('lookup.max_context_characters'), '') : null;
 
-        $word = $request->user()->vocabularies()->firstOrCreate(
+        // createOrFirst: two quick clicks on the same word race for the unique index; the loser gets the saved row.
+        $word = $request->user()->vocabularies()->createOrFirst(
             ['word' => mb_strtolower(WordLookup::normalise($data['word']))],
             // Due straight away: the first review is the moment the user saved it.
             ['context' => $context, 'next_review_at' => now()],

@@ -3,6 +3,7 @@
 namespace Tests\Feature\Jobs;
 
 use App\Ai\Agents\DebateEvaluator;
+use App\Enums\EnglishLevel;
 use App\Events\DebateEvaluated;
 use App\Events\DebateEvaluationFailed;
 use App\Jobs\EvaluateDebate;
@@ -15,6 +16,7 @@ use Illuminate\Broadcasting\PrivateChannel;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Queue\Middleware\WithoutOverlapping;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
 use Laravel\Ai\Prompts\AgentPrompt;
@@ -182,8 +184,7 @@ class EvaluateDebateTest extends TestCase
 
     public function test_a_retry_reports_the_same_added_words(): void
     {
-        // One answer per attempt: the retry asks the evaluator again.
-        DebateEvaluator::fake([self::REPORT, self::REPORT]);
+        DebateEvaluator::fake([self::REPORT])->preventStrayPrompts();
         // The first attempt fails when the report is saved, after the words were added to the deck.
         $failing = true;
         Debate::updating(function () use (&$failing) {
@@ -206,6 +207,8 @@ class EvaluateDebateTest extends TestCase
 
         $this->assertSame(['contentious', 'ubiquitous', 'mitigate'], $this->debate->user->vocabularies()->orderBy('id')->pluck('word')->all());
         Event::assertDispatched(DebateEvaluated::class, fn (DebateEvaluated $event) => $event->addedWords === ['contentious', 'ubiquitous', 'mitigate']);
+        // The retry reused the model's answer from the failed attempt: the model was paid for once.
+        DebateEvaluator::assertPromptedTimes(1);
     }
 
     public function test_a_failed_report_is_evaluated_when_it_is_requested_again(): void
@@ -264,5 +267,125 @@ class EvaluateDebateTest extends TestCase
             'ai_feedback' => self::REPORT,
             'added_words' => ['mitigate'],
         ], $event->broadcastWith());
+    }
+
+    public function test_the_evaluator_reads_only_the_latest_turns(): void
+    {
+        foreach (range(1, 35) as $number) {
+            DebateMessage::factory()->for($this->debate)->fromUser()->create(['transcript' => "Turn number {$number}."]);
+        }
+        DebateEvaluator::fake([self::REPORT]);
+
+        EvaluateDebate::dispatch($this->debate);
+
+        DebateEvaluator::assertPrompted(fn (AgentPrompt $prompt) => substr_count($prompt->prompt, 'Turn number') === 30
+            && str_contains($prompt->prompt, "1. Turn number 6.\n")
+            && str_contains($prompt->prompt, "30. Turn number 35.")
+            && ! str_contains($prompt->prompt, 'Turn number 5.'));
+    }
+
+    public function test_the_evaluator_reads_at_most_the_configured_characters_of_whole_turns(): void
+    {
+        config(['debate.evaluator.max_characters' => 100]);
+        DebateMessage::factory()->for($this->debate)->fromUser()->create(['transcript' => str_repeat('a', 60)]);
+        DebateMessage::factory()->for($this->debate)->fromUser()->create(['transcript' => str_repeat('b', 60)]);
+        DebateEvaluator::fake([self::REPORT]);
+
+        EvaluateDebate::dispatch($this->debate);
+
+        // The newest turn fits; the one before it would push past the limit, so it is left out whole.
+        DebateEvaluator::assertPrompted(fn (AgentPrompt $prompt) => str_contains($prompt->prompt, str_repeat('b', 60))
+            && ! str_contains($prompt->prompt, 'aaaa'));
+    }
+
+    public function test_a_single_turn_longer_than_the_limit_is_cut_to_it(): void
+    {
+        config(['debate.evaluator.max_characters' => 100]);
+        $this->debate->messages()->delete();
+        DebateMessage::factory()->for($this->debate)->fromUser()->create(['transcript' => str_repeat('c', 250)]);
+        DebateEvaluator::fake([self::REPORT]);
+
+        EvaluateDebate::dispatch($this->debate);
+
+        DebateEvaluator::assertPrompted(fn (AgentPrompt $prompt) => str_contains($prompt->prompt, str_repeat('c', 100))
+            && ! str_contains($prompt->prompt, str_repeat('c', 101)));
+    }
+
+    public function test_the_evaluator_is_told_the_learners_level(): void
+    {
+        $this->debate->user->update(['current_level' => EnglishLevel::B1]);
+        DebateEvaluator::fake([self::REPORT]);
+
+        EvaluateDebate::dispatch($this->debate);
+
+        DebateEvaluator::assertPrompted(fn (AgentPrompt $prompt) => $prompt->agent->level === EnglishLevel::B1
+            && str_contains((string) $prompt->agent->instructions(), 'The learner is at intermediate (B1) level.')
+            && str_contains((string) $prompt->agent->instructions(), 'Provide 3 specific vocabulary words'));
+    }
+
+    public function test_recommended_words_are_normalised_like_saved_words_and_cut_to_their_length(): void
+    {
+        DebateEvaluator::fake([[
+            'crutch_words' => [],
+            'grammar_errors' => [],
+            'recommended_vocabulary' => [
+                ['word' => ' Nuance. ', 'context' => 'A nuanced view.'],
+                ['word' => 'nuance', 'context' => 'Again.'],
+                ['word' => str_repeat('x', 300), 'context' => 'Too long to keep.'],
+                ['word' => '...', 'context' => 'Only punctuation.'],
+            ],
+        ]]);
+
+        EvaluateDebate::dispatch($this->debate);
+
+        // "Nuance." and "nuance" are one entry; a word longer than the limit is cut; punctuation alone is dropped.
+        $this->assertSame(['nuance', str_repeat('x', 200)], $this->debate->user->vocabularies()->orderBy('id')->pluck('word')->all());
+    }
+
+    public function test_an_answer_with_nothing_usable_is_retried_and_not_saved_as_an_empty_report(): void
+    {
+        config(['queue.default' => 'database']);
+        DebateEvaluator::fake([
+            ['crutch_words' => [], 'grammar_errors' => [], 'recommended_vocabulary' => []],
+            self::REPORT,
+        ]);
+
+        EvaluateDebate::dispatch($this->debate);
+        $this->runQueueWorker();
+
+        // The first answer is empty (for instance JSON that did not parse): nothing is saved, and no one is blamed.
+        $this->assertNull($this->debate->fresh()->ai_feedback);
+        Event::assertNotDispatched(DebateEvaluated::class);
+
+        $this->travel(6)->seconds();
+        $this->runQueueWorker();
+
+        $this->assertSame(self::REPORT['recommended_vocabulary'], $this->debate->fresh()->ai_feedback['recommended_vocabulary']);
+        DebateEvaluator::assertPromptedTimes(2);
+        Event::assertDispatched(DebateEvaluated::class);
+        Event::assertNotDispatched(DebateEvaluationFailed::class);
+    }
+
+    public function test_an_evaluation_that_stays_empty_fails_and_tells_the_client(): void
+    {
+        config(['queue.default' => 'database']);
+        DebateEvaluator::fake(fn () => ['crutch_words' => [], 'grammar_errors' => [], 'recommended_vocabulary' => []]);
+
+        EvaluateDebate::dispatch($this->debate);
+        $this->runQueueWorker();
+        $this->travel(6)->seconds();
+        $this->runQueueWorker();
+
+        $this->assertNull($this->debate->fresh()->ai_feedback);
+        $this->assertSame(0, UserVocabulary::count());
+        $this->assertSame(1, DB::table('failed_jobs')->count());
+        Event::assertDispatched(DebateEvaluationFailed::class, fn ($event) => $event->debate->is($this->debate));
+        Event::assertNotDispatched(DebateEvaluated::class);
+    }
+
+    private function runQueueWorker(): void
+    {
+        $this->artisan('queue:work', ['connection' => 'database', '--queue' => 'debates', '--once' => true])
+            ->assertSuccessful();
     }
 }

@@ -201,9 +201,7 @@ return [
     'defaults' => [
         'supervisor-1' => [
             'connection' => 'redis',
-            'queue' => ['debates', 'default'],
-            // 'auto' balances the queues by workload and does not keep 'debates' first. With false, Horizon
-            // runs a single pool that listens to the queues in the order listed: debates before default.
+            'queue' => ['default'],
             'balance' => false,
             'autoScalingStrategy' => 'time',
             'maxProcesses' => 1,
@@ -215,6 +213,23 @@ return [
             'sleep' => 0,
             // Must stay below the redis connection's retry_after (REDIS_QUEUE_RETRY_AFTER).
             'timeout' => 120,
+            'nice' => 0,
+        ],
+
+        // Voice turns and the fluency report wait on a person, so they have their own pool and never queue behind
+        // default work. Each job sets its own timeout (120 s for a turn, 90 s for the report), which takes precedence
+        // over this one; this must stay above them and below the redis connection's retry_after.
+        'supervisor-debates' => [
+            'connection' => 'redis',
+            'queue' => ['debates'],
+            'balance' => 'simple',
+            'maxProcesses' => 3,
+            'maxTime' => 0,
+            'maxJobs' => 0,
+            'memory' => 128,
+            'tries' => 1,
+            'sleep' => 0,
+            'timeout' => 150,
             'nice' => 0,
         ],
 
@@ -242,6 +257,9 @@ return [
                 'maxProcesses' => 10,
                 'balanceMaxShift' => 1,
                 'balanceCooldown' => 3,
+            ],
+            'supervisor-debates' => [
+                'maxProcesses' => 4,
             ],
         ],
 

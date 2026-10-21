@@ -4,6 +4,10 @@
 $llmOptionsJson = trim((string) env('DEBATE_LLM_OPTIONS', ''));
 $llmOptions = $llmOptionsJson === '' ? [] : json_decode($llmOptionsJson, true);
 
+// A timeout, limit or retention period must be a whole number of at least 1. A blank or invalid value falls back
+// to the default: (int) would turn a blank into 0, which means "no timeout", "one turn a day" or "delete everything".
+$positive = fn (string $key, int $default): int => filter_var(env($key), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) ?: $default;
+
 return [
 
     /*
@@ -33,10 +37,11 @@ return [
         'url_ttl_minutes' => 60,
         // GDPR data minimisation: users' recordings are deleted after this many days
         // (debates:prune-recordings, daily). Transcripts and tutor replies are kept.
-        'retention_days' => (int) env('DEBATE_AUDIO_RETENTION_DAYS', 7),
-        // Voice turns a regular user may send in any rolling 24 hours (admins are exempt). Each one
-        // costs STT + LLM + TTS, so this is the cap on the AI bill per account.
-        'daily_turns' => (int) env('DEBATE_DAILY_TURNS', 300),
+        'retention_days' => $positive('DEBATE_AUDIO_RETENTION_DAYS', 7),
+        // Voice turns a regular user may send in each 24-hour window (admins are exempt). The window is a fixed
+        // one, counted from the first turn in it (RateLimiter, debate-audio). Each turn costs STT + LLM + TTS,
+        // so this is the cap on the AI bill per account.
+        'daily_turns' => $positive('DEBATE_DAILY_TURNS', 300),
         'max_upload_kilobytes' => 10 * 1024,
         // Accepted upload format (extension guessed from the file contents) => extension it is
         // stored with. Whisper picks its decoder from the file name, so e.g. "audio/webm"
@@ -65,10 +70,12 @@ return [
     | TTS "eleven" with an ElevenLabs voice id.
     |
     | Timeouts are in seconds, per request. Budget: a voice turn runs STT, then the
-    | tutor, then TTS inside ProcessVoiceDebate, whose $timeout is 120, so the three
-    | timeouts must add up to less than that. The fluency report runs DebateEvaluator
-    | inside EvaluateDebate, whose $timeout is 90, so its timeout must stay below that.
-    | The defaults add up to 90 for a voice turn and 60 for the report.
+    | tutor, then TTS (and the backup voice after a failed TTS) inside ProcessVoiceDebate,
+    | whose $timeout is 120. Its two broadcasts (config/broadcasting.php, 3 s each) and
+    | its own overhead count too, so see ProcessVoiceDebate::OVERHEAD_SECONDS. The fluency
+    | report runs DebateEvaluator inside EvaluateDebate, whose $timeout is 90, so its
+    | timeout must stay below that. The defaults add up to 119 for a voice turn (30 + 30 +
+    | 30 + 20 + 3 + 3 + 3 = 119) and 60 for the report.
     |
     */
 
@@ -76,13 +83,13 @@ return [
         'provider' => env('DEBATE_STT_PROVIDER', 'openai'),
         'model' => env('DEBATE_STT_MODEL', 'whisper-1') ?: null,
         'language' => 'en',
-        'timeout' => (int) env('DEBATE_STT_TIMEOUT', 30),
+        'timeout' => $positive('DEBATE_STT_TIMEOUT', 30),
     ],
 
     'llm' => [
         'provider' => env('DEBATE_LLM_PROVIDER', 'gemini'),
         'model' => env('DEBATE_LLM_MODEL') ?: null,
-        'timeout' => (int) env('DEBATE_LLM_TIMEOUT', 30),
+        'timeout' => $positive('DEBATE_LLM_TIMEOUT', 30),
         // Provider-specific request options (JSON) merged into every tutor request. A lower
         // reasoning effort answers several times faster: {"reasoning_effort":"low"} for NVIDIA,
         // Groq and other OpenAI-compatible APIs, {"reasoning":{"effort":"low"}} for OpenAI.
@@ -99,14 +106,18 @@ return [
     'evaluator' => [
         'provider' => env('DEBATE_EVAL_PROVIDER') ?: null,
         'model' => env('DEBATE_EVAL_MODEL') ?: null,
-        'timeout' => (int) env('DEBATE_EVAL_TIMEOUT', 60),
+        'timeout' => $positive('DEBATE_EVAL_TIMEOUT', 60),
+        // The report reads the learner's latest turns only: at most this many, and at most this many characters
+        // in all. Long debates stay cheap, and a retry of a long one cannot grow the bill.
+        'max_turns' => 30,
+        'max_characters' => 10000,
     ],
 
     'tts' => [
         'provider' => env('DEBATE_TTS_PROVIDER', 'openai'),
         'model' => env('DEBATE_TTS_MODEL') ?: null,
         'voice' => env('DEBATE_TTS_VOICE', 'alloy'),
-        'timeout' => (int) env('DEBATE_TTS_TIMEOUT', 30),
+        'timeout' => $positive('DEBATE_TTS_TIMEOUT', 30),
 
         // A second voice, used only when the main one fails (e.g. its provider is down). Another
         // model needs another voice id, so it is configured on its own. No model: no backup. Its
@@ -115,7 +126,7 @@ return [
             'provider' => env('DEBATE_TTS_FALLBACK_PROVIDER') ?: env('DEBATE_TTS_PROVIDER', 'openai'),
             'model' => env('DEBATE_TTS_FALLBACK_MODEL') ?: null,
             'voice' => env('DEBATE_TTS_FALLBACK_VOICE', 'alloy'),
-            'timeout' => (int) env('DEBATE_TTS_FALLBACK_TIMEOUT', 20),
+            'timeout' => $positive('DEBATE_TTS_FALLBACK_TIMEOUT', 20),
         ],
     ],
 
