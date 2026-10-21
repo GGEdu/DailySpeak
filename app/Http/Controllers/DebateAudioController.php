@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use RuntimeException;
+use Throwable;
 
 class DebateAudioController extends Controller
 {
@@ -68,7 +69,16 @@ class DebateAudioController extends Controller
             throw new RuntimeException('The recording could not be stored.');
         }
 
-        ProcessVoiceDebate::dispatch($debate, $path);
+        try {
+            ProcessVoiceDebate::dispatch($debate, $path);
+        } catch (Throwable $exception) {
+            // Nothing will process the recording, and a file under the turn's name would make the client's retry
+            // look already received. Remove it and the turn's record, then let the request fail.
+            Storage::disk(config('debate.audio.disk'))->delete($path);
+            Cache::forget($this->receivedKey($debate, $turn));
+
+            throw $exception;
+        }
 
         // Remembered for a day even if the recording is later deleted (a failed turn drops it), so that a late
         // retry of the same upload is still recognised.
