@@ -18,16 +18,35 @@ class DebateConfigTest extends TestCase
     {
         $saved = [];
 
+        // phpunit.xml also pins variables in $_ENV and $_SERVER, which Laravel reads before getenv().
         foreach ($environment as $name => $value) {
-            $saved[$name] = getenv($name);
+            $saved[$name] = [getenv($name), $_ENV[$name] ?? null, $_SERVER[$name] ?? null];
             $value === null ? putenv($name) : putenv("{$name}={$value}");
+
+            if ($value === null) {
+                unset($_ENV[$name], $_SERVER[$name]);
+            } else {
+                $_ENV[$name] = $_SERVER[$name] = $value;
+            }
         }
 
         try {
             return require base_path("config/{$file}");
         } finally {
-            foreach ($saved as $name => $value) {
-                $value === false ? putenv($name) : putenv("{$name}={$value}");
+            foreach ($saved as $name => [$getenv, $env, $server]) {
+                $getenv === false ? putenv($name) : putenv("{$name}={$getenv}");
+
+                if ($env === null) {
+                    unset($_ENV[$name]);
+                } else {
+                    $_ENV[$name] = $env;
+                }
+
+                if ($server === null) {
+                    unset($_SERVER[$name]);
+                } else {
+                    $_SERVER[$name] = $server;
+                }
             }
         }
     }

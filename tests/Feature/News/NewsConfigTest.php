@@ -41,12 +41,22 @@ class NewsConfigTest extends TestCase
      */
     private function withEnv(string $name, string $value, callable $callback): void
     {
+        // phpunit.xml also pins the variable in $_ENV and $_SERVER, which Laravel reads before getenv().
+        $saved = [getenv($name), $_ENV[$name] ?? null, $_SERVER[$name] ?? null];
         putenv("{$name}={$value}");
+        $_ENV[$name] = $_SERVER[$name] = $value;
 
         try {
             $callback();
         } finally {
-            putenv($name);
+            $saved[0] === false ? putenv($name) : putenv("{$name}={$saved[0]}");
+            foreach (['_ENV' => $saved[1], '_SERVER' => $saved[2]] as $global => $previous) {
+                if ($previous === null) {
+                    unset($GLOBALS[$global][$name]);
+                } else {
+                    $GLOBALS[$global][$name] = $previous;
+                }
+            }
         }
     }
 }
