@@ -61,6 +61,17 @@
         <env name="VITE_REVERB_HOST" value=""/>
         <env name="VITE_REVERB_PORT" value=""/>
         <env name="VITE_REVERB_SCHEME" value=""/>
+        <env name="AI_DAILY_GLOBAL_LIMIT" value="1000"/>
+        <env name="REGISTRATIONS_PER_IP_PER_DAY" value="10"/>
+        <env name="PRIVACY_REPLIES_RETENTION_DAYS" value=""/>
+        <env name="PRIVACY_TRANSCRIPTS_RETENTION_DAYS" value="0"/>
+        <env name="HORIZON_NOTIFICATIONS_EMAIL" value=""/>
+        <env name="HEALTHCHECKS_SCHEDULER_URL" value=""/>
+        <env name="HEALTHCHECKS_NEWS_FETCH_URL" value=""/>
+        <env name="HEALTHCHECKS_PRUNE_RECORDINGS_URL" value=""/>
+        <env name="HEALTHCHECKS_HORIZON_SNAPSHOT_URL" value=""/>
+        <env name="HEALTHCHECKS_PRUNE_FAILED_URL" value=""/>
+        <env name="HEALTHCHECKS_CHECK_POLICIES_URL" value=""/>
         <env name="DEBATE_QUEUE" value="debates"/>
         <env name="DEBATE_AUDIO_DISK" value="local"/>
         <env name="DEBATE_AUDIO_RETENTION_DAYS" value="7"/>
