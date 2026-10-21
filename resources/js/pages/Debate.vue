@@ -1,7 +1,7 @@
 <script setup>
 import { Head, Link, router } from '@inertiajs/vue3';
-import { useConnectionStatus, useEcho } from '@laravel/echo-vue';
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watchEffect } from 'vue';
+import { configureEcho, useChannel, useConnectionStatus, useEcho } from '@laravel/echo-vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, toRefs, watch, watchEffect } from 'vue';
 import ChatMessage from '../components/ChatMessage.vue';
 import FluencyReport from '../components/FluencyReport.vue';
 import StateIndicator from '../components/StateIndicator.vue';
@@ -10,9 +10,15 @@ import VoiceOrb from '../components/VoiceOrb.vue';
 import { useRecorder } from '../composables/useRecorder';
 import { useReplyPlayer } from '../composables/useReplyPlayer';
 import AppLayout from '../layouts/AppLayout.vue';
-import { extensionFor } from '../lib/audio';
-import { postForm } from '../lib/http';
+import { unlockAudio } from '../lib/audio';
+import { createDebateTurns, uploadTurn } from '../lib/debateTurn';
+import { sameOriginPath } from '../lib/http';
 import { clock, timeAgo } from '../lib/time';
+
+// Realtime is only used on this page, so Echo and Pusher stay out of the entry chunk shared by every page.
+configureEcho({
+    broadcaster: 'reverb',
+});
 
 defineOptions({ layout: AppLayout });
 
@@ -22,24 +28,31 @@ const props = defineProps({
     messages: { type: Array, required: true },
 });
 
-const MIN_TURN_SECONDS = 0.6;
 const MAX_TURN_SECONDS = 60;
-const REPLY_TIMEOUT_MS = 90_000;
 const REPORT_POLL_MS = 3_000;
 const REPORT_TIMEOUT_MS = 120_000;
+const TRANSCRIPT_POLL_MS = 5_000; // while the realtime channel is not live
+const SKIP_SPACE_TARGETS = 'input, textarea, select, button, a, summary, [role=button], [tabindex], [contenteditable]';
+const SPACE_STATES = ['idle', 'listening', 'speaking'];
 
-// idle → listening (recording) → thinking (STT + LLM + TTS on the server) → speaking (reply playback) → idle
-const state = ref('idle');
-const conversation = ref([...props.messages]);
-const notice = ref(null);
+// The turn machine (lib/debateTurn.js) owns state, notice and transcript; the page only renders them.
+const store = reactive({ state: 'idle', notice: null, messages: [...props.messages] });
+const { state, notice, messages: transcript } = toRefs(store);
 const scroller = ref(null);
+const finishing = ref(false);
 
 const recorder = useRecorder({ maxSeconds: MAX_TURN_SECONDS });
 const player = useReplyPlayer();
 const connection = useConnectionStatus();
-let replyTimeout = null;
+const subscribed = ref(false);
+const subscriptionFailed = ref(false);
+const live = computed(() => connection.value === 'connected' && subscribed.value);
+const liveLabel = computed(() => (live.value ? 'Live' : subscriptionFailed.value ? 'Live updates off' : 'Connecting…'));
 
 const isActive = computed(() => props.debate.status === 'active');
+const isWideScreen = window.matchMedia('(min-width: 1024px)').matches;
+const paragraphs = computed(() => props.article.summary.split(/\n\s*\n/).filter(Boolean));
+const uploadPath = sameOriginPath(props.debate.audio_upload_url);
 
 // Fluency report (after "Finish"): pushed by DebateEvaluated, or picked up by polling.
 const liveFeedback = ref(null);
@@ -47,55 +60,66 @@ const addedWords = ref([]);
 const evaluationFailed = ref(false);
 const feedback = computed(() => liveFeedback.value ?? props.debate.ai_feedback);
 const canFinish = computed(
-    () => isActive.value && state.value === 'idle' && conversation.value.some((message) => message.role === 'user' && !message.pending),
+    () => isActive.value && state.value === 'idle' && transcript.value.some((message) => message.role === 'user' && !message.pending),
 );
-const isWideScreen = window.matchMedia('(min-width: 1024px)').matches;
-const paragraphs = computed(() => props.article.summary.split(/\n\s*\n/).filter(Boolean));
+
 const analyser = computed(() => {
     if (state.value === 'listening') return recorder.analyser.value;
     if (state.value === 'speaking') return player.analyser.value;
 
     return null;
 });
+// The orb has no look of its own for "starting": it shows the idle wave while the permission prompt is open.
+const orbState = computed(() => (state.value === 'starting' ? 'idle' : state.value));
 const orbLabel = computed(
     () =>
         ({
             idle: 'Tap to speak',
+            starting: 'Requesting microphone…',
             listening: 'Listening… tap to send',
             thinking: 'Thinking…',
             speaking: 'Speaking… tap to interrupt',
         })[state.value],
 );
 
-// --- Realtime replies (Laravel Echo → Reverb, private channel debates.{id}) ---------------
+// A background reload of the transcript only. Resolves with the server's copy; rejects if the reload fails.
+function reloadMessages() {
+    return new Promise((resolve, reject) => {
+        let settled = false;
 
-// The transcript arrives before the reply: replace the "…" bubble while the tutor thinks.
-useEcho(props.debate.channel, 'UserTurnTranscribed', (event) => {
-    removePendingTurn();
-    upsertMessage({ id: event.message_id, role: 'user', transcript: event.transcript });
+        router.reload({
+            only: ['messages'],
+            async: true,
+            showProgress: false,
+            onSuccess: (page) => {
+                settled = true;
+                resolve(page.props.messages);
+            },
+            onFinish: () => {
+                if (!settled) reject(new Error("The transcript couldn't be refreshed."));
+            },
+        });
+    });
+}
+
+const turns = createDebateTurns({
+    store,
+    recorder,
+    player,
+    upload: (blob) => uploadTurn(uploadPath, blob),
+    reload: reloadMessages,
 });
 
-useEcho(props.debate.channel, 'AIResponseGenerated', (event) => {
-    clearTimeout(replyTimeout);
-    removePendingTurn();
-    upsertMessage({ id: event.user_message.id, role: 'user', transcript: event.user_message.transcript });
+function syncTranscript() {
+    // A failed refresh is retried by the next trigger (reconnect, tab focus, the timer while not live).
+    turns.refresh().catch(() => {});
+}
 
-    const reply = { id: event.message_id, role: 'assistant', transcript: event.transcript, audio_url: event.audio_url };
-    upsertMessage(reply);
+// --- Realtime (Laravel Echo → Reverb, private channel debates.{id}) ------------------------------------
 
-    // Never talk over the user if they already started their next turn.
-    if (state.value !== 'listening') {
-        speak(reply);
-    }
-});
-
-useEcho(props.debate.channel, 'DebateTurnFailed', (event) => {
-    failTurn(
-        event.reason === 'no_speech'
-            ? "We couldn't hear anything in that recording. Try again a little closer to the mic."
-            : 'Something went wrong while answering that turn. Please try again.',
-    );
-});
+useEcho(props.debate.channel, 'UserTurnTranscribed', turns.onUserTranscribed);
+useEcho(props.debate.channel, 'AIResponseGenerated', turns.onReply);
+useEcho(props.debate.channel, 'DebateTurnFailed', turns.onTurnFailed);
 
 useEcho(props.debate.channel, 'DebateEvaluated', (event) => {
     liveFeedback.value = event.ai_feedback;
@@ -107,13 +131,42 @@ useEcho(props.debate.channel, 'DebateEvaluationFailed', () => {
     evaluationFailed.value = true;
 });
 
+// "Live" means subscribed to the private channel, not just connected: a refused subscription shows here.
+const realtime = useChannel(props.debate.channel).channel();
+
+realtime.subscribed(() => {
+    subscribed.value = true;
+    subscriptionFailed.value = false;
+    syncTranscript(); // replies sent while the channel was down are picked up now
+});
+
+realtime.error(() => {
+    subscribed.value = false;
+    subscriptionFailed.value = true;
+});
+
+watch(connection, (status) => {
+    if (status !== 'connected') subscribed.value = false;
+});
+
+// Without a live channel, the transcript is checked on a timer.
+watchEffect((onCleanup) => {
+    if (!isActive.value || live.value) {
+        return;
+    }
+
+    const poll = setInterval(syncTranscript, TRANSCRIPT_POLL_MS);
+
+    onCleanup(() => clearInterval(poll));
+});
+
 // The report may be ready before this page re-subscribes after "Finish": poll as a fallback.
 watchEffect((onCleanup) => {
     if (isActive.value || feedback.value || evaluationFailed.value) {
         return;
     }
 
-    const poll = setInterval(() => router.reload({ only: ['debate'] }), REPORT_POLL_MS);
+    const poll = setInterval(() => router.reload({ only: ['debate'], async: true, showProgress: false }), REPORT_POLL_MS);
     const giveUp = setTimeout(() => (evaluationFailed.value = true), REPORT_TIMEOUT_MS);
 
     onCleanup(() => {
@@ -122,159 +175,111 @@ watchEffect((onCleanup) => {
     });
 });
 
+// --- Finishing ----------------------------------------------------------------------------------------
+
 function finishDebate() {
-    if (confirm('Finish the debate and get your fluency report?')) {
-        router.post(`/debates/${props.debate.id}/finish`, {}, { preserveScroll: true });
+    if (!finishing.value && confirm('Finish the debate and get your fluency report?')) {
+        submitFinish();
     }
 }
 
 function retryEvaluation() {
     evaluationFailed.value = false;
-    router.post(`/debates/${props.debate.id}/finish`, {}, { preserveScroll: true });
+    submitFinish();
 }
 
-// --- Voice turn -----------------------------------------------------------------------------
+// One request at a time: a second click while the first is on its way is ignored.
+function submitFinish() {
+    if (finishing.value) return;
 
-async function press() {
-    notice.value = null;
-
-    if (state.value === 'idle') {
-        await startListening();
-    } else if (state.value === 'listening') {
-        await sendTurn();
-    } else if (state.value === 'speaking') {
-        player.stop(); // barge in
-        await startListening();
-    }
+    finishing.value = true;
+    router.post(
+        `/debates/${props.debate.id}/finish`,
+        {},
+        {
+            preserveScroll: true,
+            onFinish: () => {
+                finishing.value = false;
+            },
+        },
+    );
 }
 
-async function startListening() {
-    try {
-        await recorder.start({ onMaxDuration: sendTurn });
-        state.value = 'listening';
-    } catch (error) {
-        state.value = 'idle';
-        notice.value = { tone: 'error', text: error.message };
-    }
-}
+// --- Voice turn ---------------------------------------------------------------------------------------
 
-async function sendTurn() {
-    if (state.value !== 'listening') {
-        return;
-    }
-
-    // Leave "listening" before awaiting, so the max-duration timer cannot send the turn twice.
-    state.value = 'thinking';
-    const recording = await recorder.stop();
-
-    if (!recording || recording.duration < MIN_TURN_SECONDS) {
-        state.value = 'idle';
-        notice.value = { tone: 'info', text: 'That was very short. Tap, speak your mind, then tap again to send.' };
-
-        return;
-    }
-
-    conversation.value.push({ id: 'pending', role: 'user', pending: true });
-    scrollToBottom();
-
-    try {
-        const body = new FormData();
-        body.append('audio', recording.blob, `turn.${extensionFor(recording.blob.type)}`);
-        await postForm(props.debate.audio_upload_url, body);
-
-        replyTimeout = setTimeout(() => failTurn('The tutor is taking too long to answer. Please try again.'), REPLY_TIMEOUT_MS);
-    } catch (error) {
-        failTurn(error.message);
-    }
+// Every tap starts (or stops) the audio context first, synchronously, while the browser still counts the gesture.
+function press() {
+    unlockAudio();
+    turns.press();
 }
 
 function cancelTurn() {
-    recorder.cancel();
-    state.value = 'idle';
-}
-
-function failTurn(text) {
-    clearTimeout(replyTimeout);
-    removePendingTurn();
-
-    if (state.value === 'thinking') {
-        state.value = 'idle';
-    }
-
-    notice.value = { tone: 'error', text };
-}
-
-// --- Playback -----------------------------------------------------------------------------
-
-async function speak(message) {
-    state.value = 'speaking';
-
-    try {
-        await player.play(message.audio_url, message.id);
-    } catch (error) {
-        notice.value =
-            error?.name === 'NotAllowedError'
-                ? { tone: 'info', text: 'Your browser blocked autoplay. Press “Replay” to hear the answer.' }
-                : { tone: 'error', text: "The tutor's audio couldn't be played, but you can read the reply above." };
-    } finally {
-        if (state.value === 'speaking') {
-            state.value = 'idle';
-        }
-    }
+    turns.cancel();
 }
 
 function toggleReplay(message) {
+    unlockAudio();
+
     if (player.playingId.value === message.id) {
         player.stop();
     } else if (state.value === 'idle' || state.value === 'speaking') {
-        speak(message);
+        turns.replay(message);
     }
 }
 
-// --- Transcript helpers ---------------------------------------------------------------------
-
-function upsertMessage(message) {
-    const index = conversation.value.findIndex((existing) => existing.id === message.id);
-
-    if (index === -1) {
-        conversation.value.push(message);
-    } else {
-        conversation.value[index] = { ...conversation.value[index], ...message };
-    }
-
-    scrollToBottom();
-}
-
-function removePendingTurn() {
-    conversation.value = conversation.value.filter((message) => !message.pending);
-}
+// --- Transcript and keyboard --------------------------------------------------------------------------
 
 async function scrollToBottom() {
     await nextTick();
-    scroller.value?.scrollTo({ top: scroller.value.scrollHeight, behavior: 'smooth' });
+
+    const behavior = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
+    scroller.value?.scrollTo({ top: scroller.value.scrollHeight, behavior });
 }
 
-// Space bar as push-to-talk toggle (unless typing or focusing another control).
+watch(transcript, scrollToBottom);
+
+// Space is push-to-talk while the page can take a turn: not while typing, on another control, or with a modifier.
 function onKeydown(event) {
-    if (event.code !== 'Space' || event.repeat || event.target.closest('input, textarea, select, button, a, [contenteditable]')) {
+    if (event.key === 'Escape' && (state.value === 'listening' || state.value === 'starting')) {
+        event.preventDefault();
+        cancelTurn();
+
+        return;
+    }
+
+    if (event.code !== 'Space' || event.repeat || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) {
+        return;
+    }
+
+    if (event.target instanceof Element && event.target.closest(SKIP_SPACE_TARGETS)) {
+        return;
+    }
+
+    if (!isActive.value || !SPACE_STATES.includes(state.value)) {
         return;
     }
 
     event.preventDefault();
+    press();
+}
 
-    if (isActive.value && state.value !== 'thinking') {
-        press();
+// Back in the tab: anything the tutor said while it was hidden may be waiting on the server.
+function onVisibilityChange() {
+    if (document.visibilityState === 'visible' && isActive.value) {
+        syncTranscript();
     }
 }
 
 onMounted(() => {
     window.addEventListener('keydown', onKeydown);
+    document.addEventListener('visibilitychange', onVisibilityChange);
     scrollToBottom();
 });
 
 onBeforeUnmount(() => {
     window.removeEventListener('keydown', onKeydown);
-    clearTimeout(replyTimeout);
+    document.removeEventListener('visibilitychange', onVisibilityChange);
+    turns.dispose();
 });
 </script>
 
@@ -321,20 +326,24 @@ onBeforeUnmount(() => {
                     <button
                         v-if="canFinish"
                         type="button"
-                        class="rounded-lg border border-white/10 px-2.5 py-1 text-xs font-medium text-ink-300 transition hover:bg-white/5 hover:text-ink-100"
+                        :disabled="finishing"
+                        class="rounded-lg border border-white/10 px-2.5 py-1 text-xs font-medium text-ink-300 transition hover:bg-white/5 hover:text-ink-100 disabled:cursor-wait disabled:opacity-50"
                         @click="finishDebate"
                     >
                         Finish
                     </button>
                     <span class="flex items-center gap-2 text-xs text-ink-400" :title="`Realtime connection: ${connection}`">
-                        <span class="size-1.5 rounded-full" :class="connection === 'connected' ? 'bg-emerald-400 shadow-[0_0_8px_var(--color-emerald-400)]' : 'animate-pulse bg-amber-400'" />
-                        <span class="sr-only sm:not-sr-only">{{ connection === 'connected' ? 'Live' : 'Connecting…' }}</span>
+                        <span
+                            class="size-1.5 rounded-full"
+                            :class="live ? 'bg-emerald-400 shadow-[0_0_8px_var(--color-emerald-400)]' : 'animate-pulse bg-amber-400 motion-reduce:animate-none'"
+                        />
+                        <span class="sr-only sm:not-sr-only">{{ liveLabel }}</span>
                     </span>
                 </div>
             </header>
 
-            <div ref="scroller" class="flex-1 space-y-3 overflow-y-auto px-5 py-6 lg:max-h-[420px]" aria-live="polite">
-                <div v-if="conversation.length === 0" class="grid h-full place-items-center py-10 text-center">
+            <div ref="scroller" class="max-h-[55dvh] flex-1 space-y-3 overflow-y-auto px-5 py-6 lg:max-h-[420px]" aria-live="polite">
+                <div v-if="transcript.length === 0" class="grid h-full place-items-center py-10 text-center">
                     <div class="max-w-xs">
                         <p class="font-medium text-ink-200">Open the debate</p>
                         <p class="mt-1.5 text-sm text-ink-400">What's your take on this story? Tap the mic and argue your position.</p>
@@ -342,7 +351,7 @@ onBeforeUnmount(() => {
                 </div>
 
                 <ChatMessage
-                    v-for="message in conversation"
+                    v-for="message in transcript"
                     :key="message.id"
                     :message="message"
                     :playing="player.playingId.value === message.id"
@@ -355,15 +364,26 @@ onBeforeUnmount(() => {
             </footer>
 
             <footer v-else class="flex flex-col items-center border-t border-white/5 px-5 pt-4 pb-7">
-                <VoiceOrb :state="state" :analyser="analyser" :label="orbLabel" :disabled="state === 'thinking'" @press="press" />
+                <VoiceOrb
+                    :state="orbState"
+                    :analyser="analyser"
+                    :label="orbLabel"
+                    :disabled="state === 'thinking' || state === 'starting'"
+                    @press="press"
+                />
 
                 <p class="-mt-2 text-sm font-medium text-ink-200">
                     {{ orbLabel }}
                     <span v-if="state === 'listening'" class="ml-1.5 font-mono text-listening tabular-nums">{{ clock(recorder.elapsed.value) }}</span>
                 </p>
 
-                <div class="mt-2 h-5 text-xs text-ink-500">
-                    <button v-if="state === 'listening'" type="button" class="font-medium text-ink-400 transition hover:text-ink-100" @click="cancelTurn">
+                <div class="mt-2 flex h-6 items-center text-xs text-ink-500">
+                    <button
+                        v-if="state === 'listening' || state === 'starting'"
+                        type="button"
+                        class="inline-flex min-h-6 items-center rounded px-2 font-medium text-ink-400 transition hover:text-ink-100"
+                        @click="cancelTurn"
+                    >
                         Cancel
                     </button>
                     <span v-else-if="state === 'idle' && isActive" class="hidden sm:inline">

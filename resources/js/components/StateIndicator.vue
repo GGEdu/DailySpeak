@@ -20,7 +20,7 @@ const STEPS = [
             :aria-current="state === step.key ? 'step' : undefined"
         >
             <span class="relative flex size-1.5">
-                <span v-if="state === step.key" class="absolute inline-flex size-full animate-ping rounded-full opacity-75" :class="step.dot" />
+                <span v-if="state === step.key" class="absolute inline-flex size-full animate-ping rounded-full opacity-75 motion-reduce:animate-none" :class="step.dot" />
                 <span class="relative inline-flex size-1.5 rounded-full" :class="state === step.key ? step.dot : 'bg-ink-600'" />
             </span>
             {{ step.label }}
