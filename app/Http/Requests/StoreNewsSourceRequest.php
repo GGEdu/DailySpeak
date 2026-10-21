@@ -3,15 +3,20 @@
 namespace App\Http\Requests;
 
 use App\Models\NewsSource;
+use App\Services\News\FeedItem;
 use App\Services\News\RssFeedReader;
 use Closure;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Support\Collection;
 use Illuminate\Validation\Rule;
 use Throwable;
 
 class StoreNewsSourceRequest extends FormRequest
 {
+    /** The articles of the feed, kept from validation so the usage check does not download it again. */
+    private ?Collection $feedItems = null;
+
     /**
      * Determine if the user is authorized to make this request (the route requires `can:admin`).
      */
@@ -43,6 +48,16 @@ class StoreNewsSourceRequest extends FormRequest
     }
 
     /**
+     * The articles of the feed, once validation has read it.
+     *
+     * @return Collection<int, FeedItem>
+     */
+    public function feedItems(): Collection
+    {
+        return $this->feedItems ?? collect();
+    }
+
+    /**
      * Only save feeds the harvester can actually read, and never from a non-public address.
      *
      * Every failure gets the same message, private addresses included: a different message would tell an
@@ -60,6 +75,10 @@ class StoreNewsSourceRequest extends FormRequest
 
         if ($items->isEmpty()) {
             $fail('The feed does not contain any articles.');
+
+            return;
         }
+
+        $this->feedItems = $items;
     }
 }
