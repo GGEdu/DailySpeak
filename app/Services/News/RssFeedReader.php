@@ -122,38 +122,46 @@ class RssFeedReader
     }
 
     /**
-     * Strip analytics parameters (utm_*, BBC's at_*) so the URL identifies the article.
+     * Strip the analytics parameters (utm_*, BBC's at_*, traffic_source, fbclid) and the #fragment, so the URL
+     * identifies the article. The rest of the query is kept exactly as the feed wrote it: it is not decoded
+     * and encoded again.
      */
     private function withoutTrackingParameters(string $url): string
     {
-        $query = parse_url($url, PHP_URL_QUERY);
+        $url = Str::before($url, '#');
 
-        if (! is_string($query)) {
+        if (! str_contains($url, '?')) {
             return $url;
         }
 
-        parse_str($query, $parameters);
+        [$base, $query] = explode('?', $url, 2);
 
-        $parameters = array_filter(
-            $parameters,
-            fn (string|int $key) => ! preg_match('/^(utm|at)_/', (string) $key),
-            ARRAY_FILTER_USE_KEY,
-        );
+        $kept = array_values(array_filter(
+            explode('&', $query),
+            fn (string $pair) => $pair !== '' && ! $this->isTrackingParameter(Str::before($pair, '=')),
+        ));
 
-        $base = Str::before($url, '?');
+        return $kept === [] ? $base : $base.'?'.implode('&', $kept);
+    }
 
-        return $parameters === [] ? $base : $base.'?'.http_build_query($parameters);
+    private function isTrackingParameter(string $name): bool
+    {
+        return preg_match('/^(utm_|at_)/i', $name) === 1
+            || in_array(strtolower($name), ['traffic_source', 'fbclid'], true);
     }
 
     /**
-     * Parse an RFC 822 or RFC 3339 date into the application timezone, falling back to now.
+     * Parse an RFC 822 or RFC 3339 date into the application timezone, falling back to now. A date in the
+     * future (a wrong clock, a typo) is brought back to now, or the article would stay at the top of the feed.
      */
     private function parseDate(string $date): CarbonImmutable
     {
-        return rescue(
+        $parsed = rescue(
             fn () => CarbonImmutable::parse($date)->setTimezone(config('app.timezone')),
             fn () => CarbonImmutable::now(),
             report: false,
         );
+
+        return $parsed->greaterThan(CarbonImmutable::now()) ? CarbonImmutable::now() : $parsed;
     }
 }

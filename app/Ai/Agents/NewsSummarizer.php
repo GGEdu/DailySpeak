@@ -34,8 +34,11 @@ class NewsSummarizer implements Agent, HasStructuredOutput
     public function schema(JsonSchema $schema): array
     {
         return [
+            'is_article' => $schema->boolean()
+                ->description('True only when the text is a news or feature article. False for videos, live blogs, listings, galleries and pages without prose.')
+                ->required(),
             'summary' => $schema->string()
-                ->description('Three-paragraph summary of the article in English, paragraphs separated by a blank line.')
+                ->description('Three-paragraph summary of the article in English, paragraphs separated by a blank line, using only facts stated in the article.')
                 ->required(),
             'vocabulary' => $schema->array()
                 ->items($schema->string())

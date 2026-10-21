@@ -7,6 +7,8 @@ use App\Services\News\NewsHarvester;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
+use Illuminate\Support\Str;
+use Throwable;
 
 #[Signature('news:fetch
     {--source=* : ID of a news source to read (default: every active source)}
@@ -20,16 +22,33 @@ class FetchDailyNews extends Command
      */
     public function handle(NewsHarvester $harvester): int
     {
-        $limit = (int) ($this->option('limit') ?? config('news.max_articles_per_feed'));
-        $created = $skipped = $failed = 0;
+        $limit = max(1, (int) ($this->option('limit') ?? config('news.max_articles_per_feed')));
+        $until = now()->addSeconds(config('news.run_time_budget_seconds'));
+        $created = $skipped = $failed = $failedSources = 0;
 
         foreach ($this->feeds() as [$feed, $source]) {
             $this->components->info("Reading {$feed}");
 
-            $result = $harvester->harvest($feed, $source, $limit, onItem: $this->printItem(...));
+            try {
+                $result = $harvester->harvest($feed, $source, $limit, $until, onItem: $this->printItem(...));
+            } catch (Throwable $e) {
+                // A database or cache failure in one feed must not stop the feeds after it.
+                report($e);
+                $this->components->error("Could not harvest {$feed}: {$e->getMessage()}");
+                rescue(fn () => $source?->update(['last_error' => Str::limit($e->getMessage(), 1000)]), report: false);
+                $failedSources++;
+
+                continue;
+            }
 
             if ($result->readError !== null) {
                 $this->components->error("Could not read the feed: {$result->readError}");
+            }
+
+            // A source fails when its feed cannot be read, or when nothing new was saved and something failed.
+            // A few failed articles beside saved ones are shown in the source's last error, not as a failed run.
+            if ($result->readError !== null || ($result->failed > 0 && $result->created === 0)) {
+                $failedSources++;
             }
 
             $created += $result->created;
@@ -40,7 +59,7 @@ class FetchDailyNews extends Command
         $this->newLine();
         $this->components->info("Saved {$created}, skipped {$skipped}, failed {$failed}.");
 
-        return $failed > 0 ? self::FAILURE : self::SUCCESS;
+        return $failedSources > 0 ? self::FAILURE : self::SUCCESS;
     }
 
     /**

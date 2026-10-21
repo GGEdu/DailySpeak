@@ -2,24 +2,27 @@
 
 namespace App\Services\News;
 
+use GuzzleHttp\Exception\ConnectException;
+use GuzzleHttp\Exception\RequestException as GuzzleRequestException;
 use GuzzleHttp\Psr7\UriResolver;
 use GuzzleHttp\Psr7\Utils;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
+use RuntimeException;
 use Symfony\Component\HttpFoundation\IpUtils;
+use Throwable;
 use UnexpectedValueException;
 
 /**
  * Downloads the feeds and article pages the harvester reads without letting them reach internal
  * networks: only http(s), only public addresses (checked again at every redirect), and bodies have
- * a size cap enforced while streaming.
+ * a size cap enforced by curl while downloading.
  *
- * Known residual risk: the host is checked, then requested. Guzzle's streaming handler cannot pin
- * the connection to the checked address (curl's CURLOPT_RESOLVE needs the curl handler, which buffers
- * the whole body before the size cap could apply), so a host that changes its DNS answer between the
- * two steps is not caught.
+ * The connection is pinned to the addresses that were checked: curl is told to use them for the host
+ * (CURLOPT_RESOLVE), so a second DNS answer cannot send the request somewhere else. Each attempt and
+ * each redirect hop is checked and pinned on its own.
  */
 class SafeHttpFetcher
 {
@@ -28,24 +31,31 @@ class SafeHttpFetcher
      * shared address space, documentation and other reserved ranges).
      */
     private const EXTRA_NON_PUBLIC_RANGES = [
-        '192.0.0.0/24',  // IETF protocol assignments
-        '224.0.0.0/4',   // IPv4 multicast
-        'fec0::/10',     // Deprecated IPv6 site-local
-        'ff00::/8',      // IPv6 multicast
+        '192.0.0.0/24',       // IETF protocol assignments
+        '224.0.0.0/4',        // IPv4 multicast
+        'fec0::/10',          // Deprecated IPv6 site-local
+        'ff00::/8',           // IPv6 multicast
+        '::ffff:0:0:0/96',    // IPv4 translated to IPv6 (SIIT), e.g. ::ffff:0:7f00:1
     ];
 
     private const REDIRECT_STATUSES = [301, 302, 303, 307, 308];
 
     private const MAX_REDIRECTS = 5;
 
-    private const TIMEOUT_SECONDS = 15;
+    /** Total time for one attempt: connecting, the headers and the whole body. */
+    private const TIMEOUT_SECONDS = 20;
 
-    private const READ_CHUNK_BYTES = 8192;
+    private const CONNECT_TIMEOUT_SECONDS = 10;
+
+    /** Wait before the first retry; it doubles for each one after. */
+    private const RETRY_BACKOFF_MILLISECONDS = 500;
 
     public function __construct(private readonly HostResolver $resolver) {}
 
     /**
      * Download a URL and return its body.
+     *
+     * @param  int  $retries  extra attempts after a connection error or a 5xx response
      *
      * @throws UnsafeUrlException when the URL, or a redirect, is not a public http(s) address
      * @throws ConnectionException when the host cannot be resolved or reached
@@ -57,8 +67,8 @@ class SafeHttpFetcher
         $current = $url;
 
         for ($redirects = 0; ; $redirects++) {
-            $this->assertPublic($current);
-            $response = $this->send($current, $retries);
+            $pinned = $this->assertPublic($current);
+            $response = $this->send($current, $pinned, $retries, $maxBytes);
 
             if (! $this->isRedirect($response)) {
                 break;
@@ -81,10 +91,12 @@ class SafeHttpFetcher
     /**
      * Check that the URL is http(s) and that every address its host resolves to is public.
      *
+     * @return list<string>|null the checked addresses the connection is pinned to; null when the host is an IP address
+     *
      * @throws UnsafeUrlException
      * @throws ConnectionException
      */
-    private function assertPublic(string $url): void
+    private function assertPublic(string $url): ?array
     {
         $parts = parse_url($url);
 
@@ -93,11 +105,16 @@ class SafeHttpFetcher
         }
 
         if (config('news.allow_private_hosts')) {
-            return;
+            if (app()->isProduction()) {
+                throw new RuntimeException('NEWS_ALLOW_PRIVATE_HOSTS must be false in production.');
+            }
+
+            return null;
         }
 
         $host = trim($parts['host'], '[]');
-        $addresses = filter_var($host, FILTER_VALIDATE_IP) !== false ? [$host] : $this->resolver->resolve($host);
+        $isAddress = filter_var($host, FILTER_VALIDATE_IP) !== false;
+        $addresses = $isAddress ? [$host] : $this->resolver->resolve($host);
 
         if ($addresses === []) {
             throw new ConnectionException("The host {$host} cannot be resolved.");
@@ -108,6 +125,8 @@ class SafeHttpFetcher
                 throw UnsafeUrlException::nonPublicAddress();
             }
         }
+
+        return $isAddress ? null : $addresses;
     }
 
     private function isPublic(string $address): bool
@@ -116,23 +135,90 @@ class SafeHttpFetcher
             && ! IpUtils::checkIp($address, [...IpUtils::PRIVATE_SUBNETS, ...self::EXTRA_NON_PUBLIC_RANGES]);
     }
 
-    private function send(string $url, int $retries): Response
+    /**
+     * @param  list<string>|null  $pinned  the addresses checked for this host, or null to connect as the URL says
+     */
+    private function send(string $url, ?array $pinned, int $retries, int $maxBytes): Response
     {
+        $curl = [
+            // curl stops the transfer once the body is larger than the limit, instead of downloading it all.
+            CURLOPT_MAXFILESIZE_LARGE => $maxBytes,
+        ];
+
+        if ($pinned !== null) {
+            if (! extension_loaded('curl')) {
+                throw new RuntimeException('The curl extension is required to pin the connection to the checked addresses.');
+            }
+
+            $curl[CURLOPT_RESOLVE] = [$this->pinning($url, $pinned)];
+        }
+
         $request = Http::timeout(self::TIMEOUT_SECONDS)
+            ->connectTimeout(self::CONNECT_TIMEOUT_SECONDS)
             ->withUserAgent(config('app.name').'/1.0 (+'.config('app.url').')')
             ->withOptions([
                 // Redirects are followed here, one checked hop at a time.
                 'allow_redirects' => false,
-                // Streamed, so the size cap applies while downloading rather than after it.
-                'stream' => true,
+                'curl' => $curl,
             ]);
 
         if ($retries > 0) {
             // Failed responses are returned, not thrown, so statusException() decides how they look.
-            $request = $request->retry($retries, 500, null, false);
+            $request = $request->retry(
+                $retries + 1,
+                fn (int $attempt) => self::RETRY_BACKOFF_MILLISECONDS * 2 ** ($attempt - 1),
+                fn (Throwable $e) => $this->shouldRetry($e),
+                false,
+            );
         }
 
-        return $request->get($url);
+        try {
+            return $request->get($url);
+        } catch (ConnectionException $e) {
+            if ($this->exceededSizeLimit($e)) {
+                throw $this->tooLarge($maxBytes);
+            }
+
+            throw $e;
+        }
+    }
+
+    /**
+     * Retry only what may succeed on a second try: a connection error (or timeout) and a 5xx response.
+     */
+    private function shouldRetry(Throwable $e): bool
+    {
+        if ($e instanceof ConnectionException) {
+            return ! $this->exceededSizeLimit($e);
+        }
+
+        return $e instanceof RequestException && $e->response->serverError();
+    }
+
+    /**
+     * The CURLOPT_RESOLVE entry: the host and port of the URL, and the checked addresses for them.
+     *
+     * @param  list<string>  $addresses
+     */
+    private function pinning(string $url, array $addresses): string
+    {
+        $parts = parse_url($url);
+        $port = $parts['port'] ?? ($parts['scheme'] === 'https' ? 443 : 80);
+        $targets = array_map(fn (string $address) => str_contains($address, ':') ? "[{$address}]" : $address, $addresses);
+
+        return "{$parts['host']}:{$port}:".implode(',', $targets);
+    }
+
+    /**
+     * Guzzle reports the curl error as a ConnectException, or as a RequestException when the headers had
+     * already arrived; Laravel wraps either one.
+     */
+    private function exceededSizeLimit(ConnectionException $e): bool
+    {
+        $previous = $e->getPrevious();
+
+        return ($previous instanceof ConnectException || $previous instanceof GuzzleRequestException)
+            && ($previous->getHandlerContext()['errno'] ?? null) === CURLE_FILESIZE_EXCEEDED;
     }
 
     private function isRedirect(Response $response): bool
@@ -148,6 +234,9 @@ class SafeHttpFetcher
         return new RequestException(new Response($response->toPsrResponse()->withBody(Utils::streamFor(''))));
     }
 
+    /**
+     * The body has already been downloaded under the size limit; this checks it again before it is used.
+     */
     private function readBody(Response $response, int $maxBytes): string
     {
         if ((int) $response->header('Content-Length') > $maxBytes) {
@@ -161,17 +250,10 @@ class SafeHttpFetcher
             $stream->rewind();
         }
 
-        $body = '';
+        $body = (string) $stream;
 
-        while (! $stream->eof()) {
-            $body .= $stream->read(self::READ_CHUNK_BYTES);
-
-            if (strlen($body) > $maxBytes) {
-                // Stop the download instead of letting the server keep sending.
-                $stream->close();
-
-                throw $this->tooLarge($maxBytes);
-            }
+        if (strlen($body) > $maxBytes) {
+            throw $this->tooLarge($maxBytes);
         }
 
         return $body;

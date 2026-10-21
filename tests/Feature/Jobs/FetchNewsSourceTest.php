@@ -9,6 +9,7 @@ use App\Models\NewsSource;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Sleep;
 use RuntimeException;
 use Tests\TestCase;
@@ -16,6 +17,12 @@ use Tests\TestCase;
 class FetchNewsSourceTest extends TestCase
 {
     use RefreshDatabase;
+
+    private const SUMMARY = "The city council has approved a sweeping overhaul of the public transport plan.\n\n"
+        ."Opposition councillors say it is overly ambitious and that it will stall.\n\n"
+        .'The first routes open next spring.';
+
+    private const VOCABULARY = ['overhaul', 'congestion', 'overly ambitious', 'stall', 'overdue'];
 
     protected function setUp(): void
     {
@@ -46,10 +53,17 @@ class FetchNewsSourceTest extends TestCase
 
     public function test_a_second_fetch_of_the_same_source_is_not_queued_while_one_is_pending(): void
     {
-        $job = new FetchNewsSource(7);
+        $this->assertInstanceOf(ShouldBeUnique::class, new FetchNewsSource(7));
 
-        $this->assertInstanceOf(ShouldBeUnique::class, $job);
-        $this->assertSame('7', $job->uniqueId());
+        // The lock is taken when the job is dispatched, so two clicks queue one job; another source is not affected.
+        Queue::fake();
+
+        FetchNewsSource::dispatch(7);
+        FetchNewsSource::dispatch(7);
+        FetchNewsSource::dispatch(8);
+
+        Queue::assertPushed(FetchNewsSource::class, 2);
+        Queue::assertPushed(FetchNewsSource::class, fn (FetchNewsSource $job) => $job->sourceId === 8);
     }
 
     public function test_it_harvests_the_source_even_when_it_is_paused(): void
@@ -73,7 +87,7 @@ class FetchNewsSourceTest extends TestCase
             // A slow model: the first article uses up the whole budget.
             $this->travel(FetchNewsSource::TIME_BUDGET_SECONDS + 1)->seconds();
 
-            return ['summary' => "One.\n\nTwo.\n\nThree.", 'vocabulary' => ['a', 'b', 'c', 'd', 'e']];
+            return ['is_article' => true, 'summary' => self::SUMMARY, 'vocabulary' => self::VOCABULARY];
         })->preventStrayPrompts();
 
         FetchNewsSource::dispatchSync($source->id);
@@ -111,8 +125,9 @@ class FetchNewsSourceTest extends TestCase
     private function fakeSummaries(): void
     {
         NewsSummarizer::fake(fn () => [
-            'summary' => "One.\n\nTwo.\n\nThree.",
-            'vocabulary' => ['a', 'b', 'c', 'd', 'e'],
+            'is_article' => true,
+            'summary' => self::SUMMARY,
+            'vocabulary' => self::VOCABULARY,
         ])->preventStrayPrompts();
     }
 }
