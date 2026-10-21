@@ -86,13 +86,21 @@ class Debate extends Model
     }
 
     /**
-     * Close the debate (idempotent).
+     * Close the debate (idempotent). The update is conditional on the row still being active, so two requests
+     * racing to finish it cannot both close it; the in-memory copy then reflects what the database holds.
      */
     public function finish(): void
     {
-        if ($this->isActive()) {
-            $this->update(['status' => DebateStatus::Completed, 'ended_at' => now()]);
-        }
+        static::query()
+            ->whereKey($this->getKey())
+            ->where('status', DebateStatus::Active->value)
+            ->update([
+                'status' => DebateStatus::Completed->value,
+                'ended_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+        $this->refresh();
     }
 
     /**

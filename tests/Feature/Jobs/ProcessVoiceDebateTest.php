@@ -20,7 +20,10 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Laravel\Ai\Audio;
 use Laravel\Ai\Messages\AssistantMessage;
 use Laravel\Ai\Messages\UserMessage;
@@ -89,11 +92,12 @@ class ProcessVoiceDebateTest extends TestCase
         DebateTutor::assertPrompted(function (AgentPrompt $prompt) {
             $instructions = (string) $prompt->agent->instructions();
 
-            return $prompt->prompt === self::USER_SAYS
+            return str_contains($prompt->prompt, self::USER_SAYS)
+                && str_contains($prompt->prompt, '<article>')
+                && str_contains($prompt->prompt, 'Title: City approves free public transport')
+                && str_contains($prompt->prompt, 'The council voted to scrap bus fares from next year.')
                 && $prompt->provider->name() === 'gemini'
                 && str_contains($instructions, 'You are an expert native English tutor and debate partner.')
-                && str_contains($instructions, 'Title: City approves free public transport')
-                && str_contains($instructions, 'The council voted to scrap bus fares from next year.')
                 && str_contains($instructions, 'The user is an upper-intermediate (B2) English speaker.')
                 && str_contains($instructions, '5. Speak naturally and use some idiomatic expressions')
                 && str_contains($instructions, 'Do NOT correct grammar');
@@ -241,8 +245,11 @@ class ProcessVoiceDebateTest extends TestCase
         DebateTutor::assertNeverPrompted();
         Audio::assertNothingGenerated();
         Event::assertNotDispatched(UserTurnTranscribed::class);
-        Event::assertDispatched(DebateTurnFailed::class, fn (DebateTurnFailed $event) => $event->reason === DebateTurnFailed::NO_SPEECH);
+        Event::assertDispatched(DebateTurnFailed::class, fn (DebateTurnFailed $event) => $event->reason === DebateTurnFailed::NO_SPEECH
+            && $event->turn === 'turn');
         Event::assertNotDispatched(AIResponseGenerated::class);
+        // Nothing was said that could be answered later, so the recording is not kept.
+        $this->assertFalse(Storage::disk('local')->exists(self::RECORDING));
     }
 
     public function test_a_retried_job_reuses_the_turn_that_was_already_transcribed(): void
@@ -261,25 +268,6 @@ class ProcessVoiceDebateTest extends TestCase
         Transcription::assertNothingGenerated();
         $this->assertSame(1, $this->debate->messages()->where('role', MessageRole::User)->count());
         $this->assertSame(1, $this->debate->messages()->where('role', MessageRole::Assistant)->count());
-    }
-
-    public function test_the_client_is_told_when_the_turn_cannot_be_answered(): void
-    {
-        Transcription::fake([self::USER_SAYS]);
-        DebateTutor::fake(fn () => throw new RuntimeException('Provider overloaded'));
-        Audio::fake();
-
-        try {
-            ProcessVoiceDebate::dispatch($this->debate, self::RECORDING);
-            $this->fail('The job should have failed.');
-        } catch (RuntimeException $e) {
-            $this->assertSame('Provider overloaded', $e->getMessage());
-        }
-
-        $this->assertSame(0, $this->debate->messages()->where('role', MessageRole::Assistant)->count());
-        Audio::assertNothingGenerated();
-        Event::assertDispatched(DebateTurnFailed::class, fn (DebateTurnFailed $event) => $event->debate->is($this->debate)
-            && $event->reason === DebateTurnFailed::PROCESSING_FAILED);
     }
 
     public function test_a_broadcasting_outage_does_not_fail_an_answered_turn(): void
@@ -308,29 +296,6 @@ class ProcessVoiceDebateTest extends TestCase
         Event::assertNotDispatched(DebateTurnFailed::class);
     }
 
-    public function test_a_retry_after_a_failed_synthesis_does_not_ask_the_tutor_again(): void
-    {
-        Transcription::fake([self::USER_SAYS]);
-        DebateTutor::fake([self::TUTOR_SAYS]);
-        Audio::fake(fn () => throw new RuntimeException('Speech service down'));
-
-        try {
-            ProcessVoiceDebate::dispatch($this->debate, self::RECORDING);
-            $this->fail('The first attempt should have failed.');
-        } catch (RuntimeException) {
-            //
-        }
-
-        // The retry reuses the transcript and the reply text, and only repeats the speech synthesis.
-        Audio::fake([base64_encode('mp3')]);
-        ProcessVoiceDebate::dispatch($this->debate, self::RECORDING);
-
-        DebateTutor::assertPromptedTimes(1);
-        Audio::assertGenerated(fn (AudioPrompt $prompt) => $prompt->text === self::TUTOR_SAYS);
-        $this->assertSame(1, $this->debate->messages()->where('role', MessageRole::Assistant)->count());
-        $this->assertSame(self::TUTOR_SAYS, $this->debate->messages()->where('role', MessageRole::Assistant)->sole()->transcript);
-    }
-
     public function test_a_turn_queued_before_the_debate_was_finished_is_dropped_without_a_reply(): void
     {
         // The debate was closed, and its report written, while this turn was waiting in the queue.
@@ -347,7 +312,10 @@ class ProcessVoiceDebateTest extends TestCase
         $this->assertSame(0, $this->debate->messages()->count());
         Event::assertNotDispatched(UserTurnTranscribed::class);
         Event::assertNotDispatched(AIResponseGenerated::class);
-        Event::assertNotDispatched(DebateTurnFailed::class);
+        Event::assertDispatched(DebateTurnFailed::class, fn (DebateTurnFailed $event) => $event->debate->is($this->debate)
+            && $event->reason === DebateTurnFailed::DEBATE_ENDED
+            && $event->turn === 'turn');
+        $this->assertFalse(Storage::disk('local')->exists(self::RECORDING));
     }
 
     public function test_each_provider_call_uses_its_configured_timeout(): void
@@ -373,9 +341,33 @@ class ProcessVoiceDebateTest extends TestCase
 
         $job = new ProcessVoiceDebate($this->debate, self::RECORDING);
 
-        // The backup voice only runs after the main one failed, inside the same turn.
-        $this->assertLessThanOrEqual($job->timeout, config('debate.stt.timeout') + config('debate.llm.timeout')
-            + config('debate.tts.timeout') + config('debate.tts.fallback.timeout'));
+        // The backup voice only runs after the main one failed, inside the same turn. Both broadcasts run
+        // synchronously in the turn too, each within the broadcaster's timeout, and the overhead has to fit.
+        $budget = config('debate.stt.timeout') + config('debate.llm.timeout') + config('debate.tts.timeout')
+            + config('debate.tts.fallback.timeout')
+            + 2 * config('broadcasting.connections.reverb.client_options.timeout')
+            + ProcessVoiceDebate::OVERHEAD_SECONDS;
+
+        $this->assertSame(119, $budget);
+        $this->assertLessThan($job->timeout, $budget);
+    }
+
+    public function test_the_turn_runs_its_queue_worker_with_the_retry_policy(): void
+    {
+        $job = new ProcessVoiceDebate($this->debate, self::RECORDING);
+
+        // A failed attempt is retried once; the second failure is final (see the retry tests below).
+        $this->assertSame(2, $job->maxExceptions);
+        $this->assertSame(120, $job->timeout);
+        $this->assertSame('debates', $job->queue);
+    }
+
+    public function test_a_turn_that_finds_the_debate_busy_is_released_after_a_second(): void
+    {
+        $middleware = (new ProcessVoiceDebate($this->debate, self::RECORDING))->middleware()[0];
+
+        $this->assertInstanceOf(WithoutOverlapping::class, $middleware);
+        $this->assertSame(1, $middleware->releaseAfter);
     }
 
     public function test_a_backup_voice_speaks_when_the_main_one_fails(): void
@@ -405,11 +397,174 @@ class ProcessVoiceDebateTest extends TestCase
 
         try {
             ProcessVoiceDebate::dispatch($this->debate, self::RECORDING);
+            $this->fail('The turn should have failed: there is no backup voice.');
         } catch (RuntimeException) {
+            // Expected: the main voice failed and nothing else could speak.
         }
 
         Audio::assertGenerated(fn (AudioPrompt $prompt) => $prompt->voice === config('debate.tts.voice'));
         Audio::assertNotGenerated(fn (AudioPrompt $prompt) => $prompt->voice !== config('debate.tts.voice'));
         $this->assertSame(0, $this->debate->messages()->where('role', MessageRole::Assistant)->count());
+    }
+
+    public function test_a_turn_that_already_has_a_reply_is_broadcast_again_and_not_answered_twice(): void
+    {
+        // An earlier attempt stored the answer, then stopped before it could tell the client.
+        $turn = DebateMessage::factory()->for($this->debate)->fromUser()->create([
+            'transcript' => self::USER_SAYS,
+            'audio_path' => self::RECORDING,
+        ]);
+        $reply = DebateMessage::factory()->for($this->debate)->fromAssistant()->create([
+            'transcript' => self::TUTOR_SAYS,
+            'reply_to_id' => $turn->id,
+        ]);
+        Transcription::fake()->preventStrayTranscriptions();
+        DebateTutor::fake()->preventStrayPrompts();
+        Audio::fake()->preventStrayAudio();
+
+        ProcessVoiceDebate::dispatch($this->debate, self::RECORDING);
+
+        Transcription::assertNothingGenerated();
+        DebateTutor::assertNeverPrompted();
+        Audio::assertNothingGenerated();
+        $this->assertSame(2, $this->debate->messages()->count());
+        Event::assertDispatched(AIResponseGenerated::class, fn (AIResponseGenerated $event) => $event->reply->is($reply)
+            && $event->turn->is($turn)
+            && $event->broadcastWith()['turn'] === 'turn');
+        Event::assertNotDispatched(UserTurnTranscribed::class);
+    }
+
+    public function test_every_event_of_a_turn_carries_the_turn_id(): void
+    {
+        Transcription::fake([self::USER_SAYS]);
+        DebateTutor::fake([self::TUTOR_SAYS]);
+        Audio::fake([base64_encode('mp3')]);
+
+        ProcessVoiceDebate::dispatch($this->debate, self::RECORDING);
+
+        // The recording's name without its extension: the id the 202 response gave the client.
+        Event::assertDispatched(UserTurnTranscribed::class, fn (UserTurnTranscribed $event) => $event->broadcastWith()['turn'] === 'turn');
+        Event::assertDispatched(AIResponseGenerated::class, fn (AIResponseGenerated $event) => $event->broadcastWith()['turn'] === 'turn');
+    }
+
+    public function test_a_reply_in_the_backup_voice_is_logged_with_its_turn(): void
+    {
+        config(['debate.tts.fallback' => ['provider' => 'openai', 'model' => 'tts-backup', 'voice' => 'eve', 'timeout' => 20]]);
+        Log::spy();
+        Transcription::fake([self::USER_SAYS]);
+        DebateTutor::fake([self::TUTOR_SAYS]);
+        Audio::fake(fn (AudioPrompt $prompt) => $prompt->voice === 'eve'
+            ? base64_encode('backup-mp3')
+            : throw new RuntimeException('Main voice down'));
+
+        ProcessVoiceDebate::dispatch($this->debate, self::RECORDING);
+
+        Log::shouldHaveReceived('warning')->once()->with(
+            'Main voice failed; answering with the backup voice.',
+            Mockery::on(fn (array $context) => $context['debate_id'] === $this->debate->id && $context['turn'] === 'turn'
+                && $context['tts'] === 'openai'),
+        );
+        Log::shouldHaveReceived('info')->once()->with('Voice turn answered.', Mockery::on(fn (array $context) => $context['tts_backup'] === true
+            && $context['debate_id'] === $this->debate->id
+            && $context['turn'] === 'turn'));
+    }
+
+    public function test_a_failed_attempt_is_retried_and_the_turn_is_still_answered(): void
+    {
+        $this->onDatabaseQueue();
+        Transcription::fake([self::USER_SAYS]);
+        $attempts = 0;
+        DebateTutor::fake(function () use (&$attempts) {
+            if (++$attempts === 1) {
+                throw new RuntimeException('Provider overloaded');
+            }
+
+            return self::TUTOR_SAYS;
+        });
+        Audio::fake([base64_encode('mp3')]);
+
+        ProcessVoiceDebate::dispatch($this->debate, self::RECORDING);
+        $this->runQueueWorker();
+
+        // The first attempt failed: it is released for a retry, and nobody is told yet.
+        $this->assertSame(1, $attempts);
+        $this->assertSame(0, DB::table('failed_jobs')->count());
+        Event::assertNotDispatched(DebateTurnFailed::class);
+
+        $this->travel(5)->seconds();
+        $this->runQueueWorker();
+
+        $this->assertSame(2, $attempts);
+        $this->assertSame([self::TUTOR_SAYS], $this->debate->messages()->where('role', MessageRole::Assistant)->pluck('transcript')->all());
+        $this->assertSame(0, DB::table('jobs')->count());
+        Event::assertNotDispatched(DebateTurnFailed::class);
+    }
+
+    public function test_a_turn_that_fails_on_every_attempt_is_dropped_with_its_recording(): void
+    {
+        $this->onDatabaseQueue();
+        Transcription::fake([self::USER_SAYS]);
+        DebateTutor::fake(fn () => throw new RuntimeException('Provider overloaded'));
+        Audio::fake();
+
+        ProcessVoiceDebate::dispatch($this->debate, self::RECORDING);
+        $this->runQueueWorker();
+        Event::assertNotDispatched(DebateTurnFailed::class);
+
+        $this->travel(5)->seconds();
+        $this->runQueueWorker();
+
+        // The second failure is final: the client is told, the turn leaves no message and no recording.
+        Event::assertDispatched(DebateTurnFailed::class, fn (DebateTurnFailed $event) => $event->debate->is($this->debate)
+            && $event->reason === DebateTurnFailed::PROCESSING_FAILED
+            && $event->turn === 'turn');
+        $this->assertSame(0, $this->debate->messages()->count());
+        $this->assertFalse(Storage::disk('local')->exists(self::RECORDING));
+        $this->assertSame(1, DB::table('failed_jobs')->count());
+        Audio::assertNothingGenerated();
+    }
+
+    public function test_a_turn_with_no_tutor_reply_leaves_no_orphan_for_the_next_turn(): void
+    {
+        $this->onDatabaseQueue();
+        Transcription::fake([self::USER_SAYS]);
+        // Blank on both attempts: the tutor gives nothing usable, so the turn fails for good.
+        DebateTutor::fake(['   ', ' '])->preventStrayPrompts();
+        Audio::fake();
+
+        ProcessVoiceDebate::dispatch($this->debate, self::RECORDING);
+        $this->runQueueWorker();
+        $this->travel(5)->seconds();
+        $this->runQueueWorker();
+
+        Event::assertDispatched(DebateTurnFailed::class, fn (DebateTurnFailed $event) => $event->reason === DebateTurnFailed::PROCESSING_FAILED);
+        $this->assertSame(0, $this->debate->messages()->count());
+
+        // The user speaks again: the tutor's history is empty, not a stray user message in front of the new one.
+        Storage::disk('local')->put('debates/1/again.webm', 'recorded-again');
+        Transcription::fake(['Second try.']);
+        DebateTutor::fake([self::TUTOR_SAYS]);
+        Audio::fake([base64_encode('mp3')]);
+
+        ProcessVoiceDebate::dispatch($this->debate, 'debates/1/again.webm');
+        $this->runQueueWorker();
+
+        DebateTutor::assertPrompted(fn (AgentPrompt $prompt) => collect($prompt->agent->messages())->isEmpty());
+        $this->assertSame(['Second try.', self::TUTOR_SAYS], $this->debate->messages()->orderBy('id')->pluck('transcript')->all());
+    }
+
+    private function onDatabaseQueue(): void
+    {
+        // The database queue really stores and retries jobs, unlike the sync queue the other tests use.
+        config(['queue.default' => 'database']);
+    }
+
+    /**
+     * Run the queue worker once, as Horizon would: the next job runs for real, with its retry and failure rules.
+     */
+    private function runQueueWorker(): void
+    {
+        $this->artisan('queue:work', ['connection' => 'database', '--queue' => 'debates', '--once' => true])
+            ->assertSuccessful();
     }
 }

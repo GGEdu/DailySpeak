@@ -64,4 +64,32 @@ class DebateTest extends TestCase
 
         $this->assertDatabaseCount('debate_messages', 0);
     }
+
+    public function test_a_stale_copy_does_not_close_a_debate_again(): void
+    {
+        $debate = Debate::factory()->create();
+        $stale = Debate::find($debate->id);   // still active in this copy
+        $this->travel(1)->minutes();
+        $debate->finish();
+        $endedAt = $debate->fresh()->ended_at;
+
+        $this->travel(5)->minutes();
+        $stale->finish();
+
+        // The database already holds the first end time: the stale copy must not overwrite it.
+        $this->assertTrue($debate->fresh()->ended_at->equalTo($endedAt));
+        $this->assertSame(DebateStatus::Completed, $stale->status);
+        $this->assertTrue($stale->ended_at->equalTo($endedAt));
+    }
+
+    public function test_finishing_an_active_debate_closes_it_and_refreshes_the_copy(): void
+    {
+        $debate = Debate::factory()->create();
+
+        $debate->finish();
+
+        $this->assertSame(DebateStatus::Completed, $debate->status);
+        $this->assertNotNull($debate->ended_at);
+        $this->assertSame(DebateStatus::Completed, $debate->fresh()->status);
+    }
 }
