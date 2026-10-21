@@ -184,6 +184,79 @@ class FetchDailyNewsTest extends TestCase
         NewsSummarizer::assertPromptedTimes(2);
     }
 
+    public function test_a_failed_summary_is_not_sent_to_the_model_again_for_a_day(): void
+    {
+        $this->fakeHttp();
+        NewsSummarizer::fake(fn () => throw new RuntimeException('Model unavailable'))->preventStrayPrompts();
+
+        $this->artisan('news:fetch')->assertFailed();
+        NewsSummarizer::assertPromptedTimes(2);
+
+        $this->artisan('news:fetch')->expectsOutputToContain('failed recently')->assertSuccessful();
+        NewsSummarizer::assertPromptedTimes(2);
+
+        $this->travel(25)->hours();
+        $this->artisan('news:fetch')->assertFailed();
+        NewsSummarizer::assertPromptedTimes(4);
+    }
+
+    public function test_a_source_stops_after_three_articles_in_a_row_fail(): void
+    {
+        $this->fakeFeed([
+            'https://www.bbc.co.uk/news/articles/one',
+            'https://www.bbc.co.uk/news/articles/two',
+            'https://www.bbc.co.uk/news/articles/three',
+            'https://www.bbc.co.uk/news/articles/four',
+            'https://www.bbc.co.uk/news/articles/five',
+        ]);
+        NewsSummarizer::fake(fn () => throw new RuntimeException('Quota exceeded'))->preventStrayPrompts();
+
+        $this->artisan('news:fetch')
+            ->expectsOutputToContain('Saved 0, skipped 0, failed 3.')
+            ->assertFailed();
+
+        NewsSummarizer::assertPromptedTimes(3);
+        $this->assertStringContainsString('Stopped after 3 failures in a row', $this->source->fresh()->last_error);
+    }
+
+    public function test_the_daily_run_stops_starting_articles_once_its_time_budget_is_spent(): void
+    {
+        config(['news.run_time_budget_seconds' => 60]);
+        NewsSource::factory()->create(['feed_url' => 'https://feeds.other.test/rss.xml']);
+        $this->fakeHttp(['feeds.other.test/*' => Http::response(file_get_contents(base_path('tests/Fixtures/news/feed.xml')))]);
+        NewsSummarizer::fake(function () {
+            // A slow model: the first article uses up the whole budget of the run.
+            $this->travel(61)->seconds();
+
+            return ['is_article' => true, 'summary' => self::SUMMARY, 'vocabulary' => self::VOCABULARY];
+        })->preventStrayPrompts();
+
+        $this->artisan('news:fetch')->assertSuccessful();
+
+        NewsSummarizer::assertPromptedTimes(1);
+        $this->assertStringContainsString('time limit', NewsSource::where('feed_url', 'https://feeds.other.test/rss.xml')->first()->last_error);
+    }
+
+    public function test_an_article_stored_while_it_was_being_summarised_is_not_stored_twice(): void
+    {
+        $this->fakeHttp();
+        NewsSummarizer::fake(function (string $prompt) {
+            // The other run (Fetch now, say) stores the article while this one waits for the model.
+            if (str_contains($prompt, 'City council')) {
+                NewsArticle::factory()->create(['source_url' => self::TRANSPORT_URL]);
+            }
+
+            return ['is_article' => true, 'summary' => self::SUMMARY, 'vocabulary' => self::VOCABULARY];
+        })->preventStrayPrompts();
+
+        $this->artisan('news:fetch')
+            ->expectsOutputToContain('Saved 1, skipped 2, failed 0.')
+            ->assertSuccessful();
+
+        $this->assertSame(1, NewsArticle::where('source_url', self::TRANSPORT_URL)->count());
+        $this->assertSame(2, NewsArticle::count());
+    }
+
     public function test_vocabulary_is_trimmed_deduplicated_and_capped(): void
     {
         $this->fakeHttp();

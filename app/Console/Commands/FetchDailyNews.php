@@ -21,12 +21,13 @@ class FetchDailyNews extends Command
     public function handle(NewsHarvester $harvester): int
     {
         $limit = max(1, (int) ($this->option('limit') ?? config('news.max_articles_per_feed')));
+        $until = now()->addSeconds(config('news.run_time_budget_seconds'));
         $created = $skipped = $failed = $failedSources = 0;
 
         foreach ($this->feeds() as [$feed, $source]) {
             $this->components->info("Reading {$feed}");
 
-            $result = $harvester->harvest($feed, $source, $limit, onItem: $this->printItem(...));
+            $result = $harvester->harvest($feed, $source, $limit, $until, onItem: $this->printItem(...));
 
             if ($result->readError !== null) {
                 $this->components->error("Could not read the feed: {$result->readError}");
