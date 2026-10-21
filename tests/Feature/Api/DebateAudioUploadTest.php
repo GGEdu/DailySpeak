@@ -4,6 +4,7 @@ namespace Tests\Feature\Api;
 
 use App\Jobs\ProcessVoiceDebate;
 use App\Models\Debate;
+use App\Models\DebateMessage;
 use App\Models\User;
 use App\Providers\AppServiceProvider;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -192,6 +193,93 @@ class DebateAudioUploadTest extends TestCase
     public function test_the_default_daily_cap_is_300_turns(): void
     {
         $this->assertSame(300, config('debate.audio.daily_turns'));
+    }
+
+    public function test_the_same_upload_sent_twice_is_stored_and_queued_once(): void
+    {
+        Sanctum::actingAs($this->user);
+        $turn = '3f9b2a6e-7c1d-4e8a-9b5f-2d6c8a1e4f70';
+
+        $first = $this->post($this->url(), ['audio' => UploadedFile::fake()->create('turn.webm', 120, 'audio/webm'), 'turn' => $turn])
+            ->assertAccepted()
+            ->assertExactJson(['status' => 'processing', 'turn' => $turn]);
+        // The client retried after its POST timed out: the same blob, the same turn.
+        $second = $this->post($this->url(), ['audio' => UploadedFile::fake()->create('turn.webm', 120, 'audio/webm'), 'turn' => $turn])
+            ->assertAccepted()
+            ->assertExactJson(['status' => 'processing', 'turn' => $turn]);
+
+        $this->assertSame($first->json('turn'), $second->json('turn'));
+        $this->assertCount(1, Storage::disk('local')->files("debates/{$this->debate->id}/recordings"));
+        Queue::assertPushedTimes(ProcessVoiceDebate::class, 1);
+    }
+
+    public function test_the_turn_is_recognised_whatever_the_case_of_its_id(): void
+    {
+        Sanctum::actingAs($this->user);
+        $turn = '3f9b2a6e-7c1d-4e8a-9b5f-2d6c8a1e4f70';
+
+        $this->post($this->url(), ['audio' => UploadedFile::fake()->create('turn.webm', 120, 'audio/webm'), 'turn' => $turn])->assertAccepted();
+        $this->post($this->url(), ['audio' => UploadedFile::fake()->create('turn.webm', 120, 'audio/webm'), 'turn' => strtoupper($turn)])
+            ->assertAccepted()
+            ->assertJsonPath('turn', $turn);
+
+        Queue::assertPushedTimes(ProcessVoiceDebate::class, 1);
+    }
+
+    public function test_a_recording_already_stored_under_the_turn_is_not_stored_again(): void
+    {
+        Sanctum::actingAs($this->user);
+        $turn = '3f9b2a6e-7c1d-4e8a-9b5f-2d6c8a1e4f70';
+        Storage::disk('local')->put("debates/{$this->debate->id}/recordings/{$turn}.mp3", 'earlier-copy');
+
+        $this->post($this->url(), ['audio' => UploadedFile::fake()->create('turn.webm', 120, 'audio/webm'), 'turn' => $turn])
+            ->assertAccepted()
+            ->assertJsonPath('turn', $turn);
+
+        $this->assertSame(['earlier-copy'], [Storage::disk('local')->get("debates/{$this->debate->id}/recordings/{$turn}.mp3")]);
+        $this->assertCount(1, Storage::disk('local')->files("debates/{$this->debate->id}/recordings"));
+        Queue::assertNothingPushed();
+    }
+
+    public function test_a_turn_that_already_has_a_message_is_not_queued_again(): void
+    {
+        Sanctum::actingAs($this->user);
+        $turn = '3f9b2a6e-7c1d-4e8a-9b5f-2d6c8a1e4f70';
+        DebateMessage::factory()->for($this->debate)->fromUser()->create([
+            'audio_path' => "debates/{$this->debate->id}/recordings/{$turn}.webm",
+        ]);
+
+        $this->post($this->url(), ['audio' => UploadedFile::fake()->create('turn.webm', 120, 'audio/webm'), 'turn' => $turn])
+            ->assertAccepted()
+            ->assertJsonPath('turn', $turn);
+
+        Queue::assertNothingPushed();
+    }
+
+    public function test_a_late_retry_is_still_recognised_after_its_recording_was_dropped(): void
+    {
+        Sanctum::actingAs($this->user);
+        $turn = '3f9b2a6e-7c1d-4e8a-9b5f-2d6c8a1e4f70';
+        $this->post($this->url(), ['audio' => UploadedFile::fake()->create('turn.webm', 120, 'audio/webm'), 'turn' => $turn])->assertAccepted();
+        // The turn failed for good and its recording was deleted; the retry arrives after that.
+        Storage::disk('local')->deleteDirectory("debates/{$this->debate->id}/recordings");
+
+        $this->post($this->url(), ['audio' => UploadedFile::fake()->create('turn.webm', 120, 'audio/webm'), 'turn' => $turn])
+            ->assertAccepted()
+            ->assertJsonPath('turn', $turn);
+
+        Queue::assertPushedTimes(ProcessVoiceDebate::class, 1);
+    }
+
+    public function test_the_turn_id_must_be_a_uuid(): void
+    {
+        Sanctum::actingAs($this->user);
+
+        $this->postJson($this->url(), ['audio' => UploadedFile::fake()->create('turn.webm', 120, 'audio/webm'), 'turn' => '../../etc/passwd'])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('turn');
+
+        Queue::assertNothingPushed();
     }
 
     private function url(): string

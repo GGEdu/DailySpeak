@@ -33,6 +33,8 @@ class StoreDebateAudioRequest extends FormRequest
                     ->min(1)
                     ->max(config('debate.audio.max_upload_kilobytes')),
             ],
+            // Optional turn id chosen by the client, so a re-sent upload is recognised (see DebateAudioController).
+            'turn' => ['nullable', 'uuid'],
         ];
     }
 }
