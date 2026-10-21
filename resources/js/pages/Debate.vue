@@ -1,6 +1,6 @@
 <script setup>
 import { Head, Link, router } from '@inertiajs/vue3';
-import { configureEcho, useChannel, useConnectionStatus, useEcho } from '@laravel/echo-vue';
+import { useChannel, useConnectionStatus, useEcho } from '@laravel/echo-vue';
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, toRefs, watch, watchEffect } from 'vue';
 import ChatMessage from '../components/ChatMessage.vue';
 import FluencyReport from '../components/FluencyReport.vue';
@@ -13,13 +13,13 @@ import AppLayout from '../layouts/AppLayout.vue';
 import { unlockAudio } from '../lib/audio';
 import { createDebateTurns, uploadTurn } from '../lib/debateTurn';
 import { sameOriginPath } from '../lib/http';
+import { configureRealtime } from '../lib/realtime';
 import { clock, timeAgo } from '../lib/time';
 import { safeHttpUrl } from '../lib/url';
 
 // Realtime is only used on this page, so Echo and Pusher stay out of the entry chunk shared by every page.
-configureEcho({
-    broadcaster: 'reverb',
-});
+// The component is set up again on every visit, so the configuration must not be repeated.
+configureRealtime();
 
 defineOptions({ layout: AppLayout });
 
