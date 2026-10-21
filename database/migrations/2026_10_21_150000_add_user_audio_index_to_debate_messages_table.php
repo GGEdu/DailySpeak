@@ -14,8 +14,7 @@ return new class extends Migration
      * Run the migrations.
      *
      * Partial index for the nightly purge: the user messages that still have a recording, in id order.
-     * The purge then reads only those rows instead of the whole table. If the build fails it can leave an
-     * INVALID index behind: drop it with DROP INDEX CONCURRENTLY IF EXISTS and run the migration again.
+     * The purge then reads only those rows instead of the whole table.
      */
     public function up(): void
     {
@@ -23,6 +22,8 @@ return new class extends Migration
             return;
         }
 
+        // A run that failed while building leaves an INVALID index behind, and "already exists" would stop every later run.
+        DB::statement('DROP INDEX CONCURRENTLY IF EXISTS debate_messages_user_audio_id_index');
         DB::statement(
             "CREATE INDEX CONCURRENTLY debate_messages_user_audio_id_index ON debate_messages (id) WHERE role = 'user' AND audio_path IS NOT NULL"
         );
