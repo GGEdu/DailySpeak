@@ -61,6 +61,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         ->can('view', 'debate')
         ->name('debates.show');
     Route::post('/debates/{debate}/finish', [DebateSessionController::class, 'finish'])
+        ->middleware('throttle:ai-budget') // the report is an AI call
         ->can('finish', 'debate')
         ->name('debates.finish');
 
@@ -69,7 +70,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         ->can('update', 'vocabulary')
         ->name('vocabulary.review');
     Route::post('/vocabulary/{vocabulary}/analyze', [VocabularyController::class, 'analyze'])
-        ->middleware('throttle:lookups')
+        ->middleware(['throttle:lookups', 'throttle:ai-budget'])
         ->can('update', 'vocabulary')
         ->name('vocabulary.analyze');
     Route::delete('/vocabulary/{vocabulary}', [VocabularyController::class, 'destroy'])
@@ -78,7 +79,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     Route::get('/settings', [SettingsController::class, 'edit'])->name('settings.edit');
     Route::put('/settings', [SettingsController::class, 'update'])->name('settings.update');
-    Route::get('/settings/export', [AccountController::class, 'export'])->name('account.export');
+    Route::get('/settings/export', [AccountController::class, 'export'])
+        ->middleware('throttle:6,1') // builds the whole history in one response
+        ->name('account.export');
     Route::delete('/settings/account', [AccountController::class, 'destroy'])
         ->middleware('throttle:6,1') // the password check is a guess target
         ->name('account.destroy');

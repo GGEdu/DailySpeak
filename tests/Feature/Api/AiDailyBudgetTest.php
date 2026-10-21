@@ -10,6 +10,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
 use Laravel\Sanctum\Sanctum;
@@ -27,6 +28,13 @@ class AiDailyBudgetTest extends TestCase
 
         Storage::fake('local');
         Queue::fake();
+    }
+
+    public function test_every_route_that_calls_the_ai_counts_against_the_budget(): void
+    {
+        foreach (['debates.audio.store', 'lookups.store', 'vocabulary.store', 'vocabulary.analyze', 'debates.finish'] as $name) {
+            $this->assertContains('throttle:ai-budget', Route::getRoutes()->getByName($name)->gatherMiddleware(), $name);
+        }
     }
 
     public function test_the_budget_is_shared_by_every_user_and_every_ai_route(): void
