@@ -165,5 +165,4 @@ class DebateTutor implements Agent, Conversational, HasProviderOptions
 
         return $last?->role === MessageRole::User ? $last->text : null;
     }
-
 }
