@@ -17,6 +17,12 @@ class FetchNewsSourceTest extends TestCase
 {
     use RefreshDatabase;
 
+    private const SUMMARY = "The city council has approved a sweeping overhaul of the public transport plan.\n\n"
+        ."Opposition councillors say it is overly ambitious and that it will stall.\n\n"
+        .'The first routes open next spring.';
+
+    private const VOCABULARY = ['overhaul', 'congestion', 'overly ambitious', 'stall', 'overdue'];
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -73,7 +79,7 @@ class FetchNewsSourceTest extends TestCase
             // A slow model: the first article uses up the whole budget.
             $this->travel(FetchNewsSource::TIME_BUDGET_SECONDS + 1)->seconds();
 
-            return ['is_article' => true, 'summary' => "One.\n\nTwo.\n\nThree.", 'vocabulary' => ['a', 'b', 'c', 'd', 'e']];
+            return ['is_article' => true, 'summary' => self::SUMMARY, 'vocabulary' => self::VOCABULARY];
         })->preventStrayPrompts();
 
         FetchNewsSource::dispatchSync($source->id);
@@ -112,8 +118,8 @@ class FetchNewsSourceTest extends TestCase
     {
         NewsSummarizer::fake(fn () => [
             'is_article' => true,
-            'summary' => "One.\n\nTwo.\n\nThree.",
-            'vocabulary' => ['a', 'b', 'c', 'd', 'e'],
+            'summary' => self::SUMMARY,
+            'vocabulary' => self::VOCABULARY,
         ])->preventStrayPrompts();
     }
 }

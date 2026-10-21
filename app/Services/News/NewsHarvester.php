@@ -37,6 +37,22 @@ class NewsHarvester
      */
     private const NON_ARTICLE_PATH = '#/(videos?|live|audio|podcasts?)(/|$)#i';
 
+    /** Markers around the page text in the prompt; the instructions say what is between them is data. */
+    private const TEXT_OPEN = '<article_text>';
+
+    private const TEXT_CLOSE = '</article_text>';
+
+    /** Paragraphs a summary may have. The prompt asks for three. */
+    private const SUMMARY_PARAGRAPHS = [2, 5];
+
+    /** Common English words: a summary with at least this many different ones is written in English. */
+    private const ENGLISH_WORDS = [
+        'the', 'and', 'of', 'to', 'in', 'is', 'that', 'for', 'with', 'it', 'on', 'as', 'was', 'are', 'by',
+        'from', 'this', 'be', 'have', 'has', 'their', 'they', 'which', 'at', 'or', 'not',
+    ];
+
+    private const ENGLISH_WORDS_NEEDED = 5;
+
     public function __construct(
         private readonly RssFeedReader $reader,
         private readonly ArticleTextExtractor $extractor,
@@ -202,28 +218,35 @@ class NewsHarvester
     }
 
     /**
-     * Ask the LLM for the summary and key vocabulary of an article.
+     * Ask the LLM for the summary and key vocabulary of an article, and check what it answers: the summary
+     * must be a few English paragraphs with no links, and the vocabulary must be words of the article.
      *
      * @return array{summary: string, vocabulary: list<string>}|null null when the model says the page is not an article
+     *
+     * @throws UnexpectedValueException when the answer is not a usable summary
      */
     private function summarise(FeedItem $item, string $text): ?array
     {
-        $response = NewsSummarizer::make()->prompt("Title: {$item->title}\n\n{$text}");
+        // The page text is data, not instructions: the closing marker is removed so it cannot end the block early.
+        $delimited = str_ireplace(self::TEXT_CLOSE, '', $text);
+        $response = NewsSummarizer::make()->prompt("Title: {$item->title}\n\n".self::TEXT_OPEN."\n{$delimited}\n".self::TEXT_CLOSE);
 
         if (($response['is_article'] ?? false) !== true) {
             return null;
         }
 
         // Models often separate paragraphs with a single newline; the UI expects blank lines.
-        $summary = collect(preg_split('/\R+/u', (string) ($response['summary'] ?? '')))
+        $paragraphs = collect(preg_split('/\R+/u', (string) ($response['summary'] ?? '')))
             ->map(fn (string $paragraph) => trim($paragraph))
             ->filter()
-            ->implode("\n\n");
+            ->values();
+        $summary = $paragraphs->implode("\n\n");
 
         $vocabulary = collect($response['vocabulary'] ?? [])
             ->filter(fn ($word) => is_string($word) && trim($word) !== '')
             ->map(fn (string $word) => trim($word))
             ->unique(fn (string $word) => mb_strtolower($word))
+            ->filter(fn (string $word) => str_contains(mb_strtolower($text), mb_strtolower($word)))
             ->take(NewsSummarizer::VOCABULARY_SIZE)
             ->values()
             ->all();
@@ -232,7 +255,39 @@ class NewsHarvester
             throw new UnexpectedValueException('The model returned an empty summary or vocabulary.');
         }
 
+        if (count($vocabulary) < NewsSummarizer::VOCABULARY_SIZE) {
+            throw new UnexpectedValueException('Fewer than '.NewsSummarizer::VOCABULARY_SIZE.' of the vocabulary terms appear in the article.');
+        }
+
+        $this->assertPlausibleSummary($summary, $paragraphs->count());
+
         return ['summary' => $summary, 'vocabulary' => $vocabulary];
+    }
+
+    /**
+     * @throws UnexpectedValueException
+     */
+    private function assertPlausibleSummary(string $summary, int $paragraphs): void
+    {
+        [$fewest, $most] = self::SUMMARY_PARAGRAPHS;
+
+        if ($paragraphs < $fewest || $paragraphs > $most) {
+            throw new UnexpectedValueException("The model returned a summary of {$paragraphs} paragraph(s), not {$fewest} to {$most}.");
+        }
+
+        if (mb_strlen($summary) > config('news.max_summary_characters')) {
+            throw new UnexpectedValueException('The model returned a summary longer than '.config('news.max_summary_characters').' characters.');
+        }
+
+        if (preg_match('#https?://|www\.#i', $summary) === 1) {
+            throw new UnexpectedValueException('The model put a link in the summary.');
+        }
+
+        $words = preg_split('/[^\p{L}]+/u', mb_strtolower($summary), -1, PREG_SPLIT_NO_EMPTY);
+
+        if (count(array_intersect(self::ENGLISH_WORDS, $words)) < self::ENGLISH_WORDS_NEEDED) {
+            throw new UnexpectedValueException('The model did not write the summary in English.');
+        }
     }
 
     /**

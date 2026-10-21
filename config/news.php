@@ -63,6 +63,9 @@ return [
 
     'max_article_characters' => 12000,
 
+    // A summary longer than this is refused: the model went beyond what the page says.
+    'max_summary_characters' => 2000,
+
     // Items whose page has no usable text (videos, live pages) are not downloaded again for this many days.
     'skipped_items_days' => 7,
 
