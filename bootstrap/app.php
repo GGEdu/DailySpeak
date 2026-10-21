@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\HandleInertiaRequests;
+use App\Http\Middleware\SecurityHeaders;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -19,7 +20,9 @@ return Application::configure(basePath: dirname(__DIR__))
         // Let the web frontend call /api with its session cookie (Sanctum SPA authentication).
         $middleware->statefulApi();
 
-        $middleware->web(append: [
+        $middleware->web(prepend: [
+            SecurityHeaders::class,
+        ], append: [
             HandleInertiaRequests::class,
             AddLinkHeadersForPreloadedAssets::class,
         ]);
