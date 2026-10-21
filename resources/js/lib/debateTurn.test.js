@@ -289,6 +289,86 @@ test('a failure of the pending turn ends the wait with its message, and failures
     assert.equal(h.clock.pending, 0);
 });
 
+const transcriptIds = (h) => h.store.messages.filter((message) => !message.pending).map((message) => message.id);
+
+// The server deletes the turn's message when it gives up on the turn: the client must not keep showing it.
+for (const [reason, text] of [
+    ['processing_failed', TEXT.failed],
+    ['debate_ended', TEXT.ended],
+]) {
+    test(`a turn that ends with ${reason} takes its message off the transcript, as the server did`, async () => {
+        const h = harness();
+        await sendTurn(h);
+        h.uploads[0].resolve({ status: 'processing', turn: 't1' });
+        await flush();
+        h.turns.onUserTranscribed(userEvent(12, 't1'));
+        assert.deepEqual(transcriptIds(h), [10, 11, 12]);
+
+        h.turns.onTurnFailed({ reason, turn: 't1' });
+
+        assert.equal(h.store.state, 'idle');
+        assert.deepEqual(h.store.notice, { tone: 'error', text });
+        assert.deepEqual(transcriptIds(h), [10, 11]);
+        assert.equal(h.store.messages.some((message) => message.pending), false);
+    });
+}
+
+test('a refresh that no longer has the message of the pending turn takes it off the transcript', async () => {
+    const h = harness();
+    await sendTurn(h);
+    h.uploads[0].resolve({ status: 'processing', turn: 't1' });
+    await flush();
+    h.turns.onUserTranscribed(userEvent(12, 't1'));
+
+    const merged = h.turns.refresh();
+    h.reloads[0].resolve([user(10), tutor(11)]);
+
+    assert.equal(await merged, false);
+    assert.deepEqual(transcriptIds(h), [10, 11]);
+});
+
+test('a copy taken before a turn event does not decide what was deleted', async () => {
+    const h = harness();
+    await sendTurn(h);
+    h.uploads[0].resolve({ status: 'processing', turn: 't1' });
+    await flush();
+
+    const merged = h.turns.refresh();
+    h.turns.onUserTranscribed(userEvent(12, 't1'));
+    h.reloads[0].resolve([user(10), tutor(11)]);
+    await merged;
+
+    assert.deepEqual(transcriptIds(h), [10, 11, 12]);
+});
+
+test('a copy taken before the failure does not bring the deleted message back', async () => {
+    const h = harness();
+    await sendTurn(h);
+    h.uploads[0].resolve({ status: 'processing', turn: 't1' });
+    await flush();
+    h.turns.onUserTranscribed(userEvent(12, 't1'));
+
+    const merged = h.turns.refresh();
+    h.turns.onTurnFailed({ reason: 'processing_failed', turn: 't1' });
+    h.reloads[0].resolve([user(10), tutor(11), user(12)]);
+    await merged;
+
+    assert.deepEqual(transcriptIds(h), [10, 11]);
+});
+
+test('a refresh takes off messages after the turn started, never the ones before it', async () => {
+    const h = harness();
+    await sendTurn(h);
+    h.uploads[0].resolve({ status: 'processing', turn: 't1' });
+    await flush();
+
+    const merged = h.turns.refresh();
+    h.reloads[0].resolve([tutor(11)]);
+    await merged;
+
+    assert.deepEqual(transcriptIds(h), [10, 11]);
+});
+
 test('a reply that has not come after 130 s is asked for once, and the turn fails if it is not there', async () => {
     const h = harness();
     await sendTurn(h);
