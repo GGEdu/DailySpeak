@@ -52,4 +52,26 @@ class HorizonAccessTest extends TestCase
         $this->actingAs($admin)->get('/horizon')->assertOk();
         $this->actingAs($admin)->getJson('/horizon/api/stats')->assertOk()->assertJsonStructure(['failedJobs', 'jobsPerMinute', 'status']);
     }
+
+    public function test_every_script_on_the_dashboard_carries_the_nonce_of_the_policy(): void
+    {
+        $admin = User::factory()->admin()->create();
+
+        foreach ([JobRepository::class, MetricsRepository::class, SupervisorRepository::class, MasterSupervisorRepository::class] as $contract) {
+            $this->mock($contract, fn ($mock) => $mock->shouldIgnoreMissing());
+        }
+
+        $response = $this->actingAs($admin)->get('/horizon')->assertOk();
+
+        // Horizon's JavaScript is inline: under the policy it runs only with the nonce of this response.
+        preg_match("/'nonce-([^']+)'/", (string) $response->headers->get('Content-Security-Policy'), $policy);
+        $this->assertNotEmpty($policy[1] ?? null);
+
+        preg_match_all('/<script\b[^>]*>/i', $response->getContent(), $scripts);
+        $this->assertNotEmpty($scripts[0]);
+
+        foreach ($scripts[0] as $tag) {
+            $this->assertStringContainsString('nonce="'.$policy[1].'"', $tag);
+        }
+    }
 }

@@ -5,6 +5,7 @@ namespace App\Http\Middleware;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Vite;
+use Laravel\Horizon\Horizon;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
@@ -24,6 +25,9 @@ class SecurityHeaders
         if (! $hot) {
             // Must be set before the view renders, so every @vite tag gets the nonce.
             $nonce = Vite::useCspNonce();
+
+            // Horizon's dashboard renders its own inline script, which the same policy would block without the nonce.
+            Horizon::cspNonce($nonce);
         }
 
         $response = $next($request);
