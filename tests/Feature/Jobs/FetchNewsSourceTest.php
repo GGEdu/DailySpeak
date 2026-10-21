@@ -73,7 +73,7 @@ class FetchNewsSourceTest extends TestCase
             // A slow model: the first article uses up the whole budget.
             $this->travel(FetchNewsSource::TIME_BUDGET_SECONDS + 1)->seconds();
 
-            return ['summary' => "One.\n\nTwo.\n\nThree.", 'vocabulary' => ['a', 'b', 'c', 'd', 'e']];
+            return ['is_article' => true, 'summary' => "One.\n\nTwo.\n\nThree.", 'vocabulary' => ['a', 'b', 'c', 'd', 'e']];
         })->preventStrayPrompts();
 
         FetchNewsSource::dispatchSync($source->id);
@@ -111,6 +111,7 @@ class FetchNewsSourceTest extends TestCase
     private function fakeSummaries(): void
     {
         NewsSummarizer::fake(fn () => [
+            'is_article' => true,
             'summary' => "One.\n\nTwo.\n\nThree.",
             'vocabulary' => ['a', 'b', 'c', 'd', 'e'],
         ])->preventStrayPrompts();

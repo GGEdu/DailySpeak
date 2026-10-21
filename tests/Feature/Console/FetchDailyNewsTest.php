@@ -109,7 +109,7 @@ class FetchDailyNewsTest extends TestCase
         NewsSummarizer::fake(function (string $prompt) {
             throw_if(str_contains($prompt, 'City council'), new RuntimeException('Rate limit exceeded'));
 
-            return ['summary' => self::SUMMARY, 'vocabulary' => self::VOCABULARY];
+            return ['is_article' => true, 'summary' => self::SUMMARY, 'vocabulary' => self::VOCABULARY];
         })->preventStrayPrompts();
 
         $this->artisan('news:fetch')
@@ -125,7 +125,7 @@ class FetchDailyNewsTest extends TestCase
     public function test_incomplete_model_output_is_not_stored(): void
     {
         $this->fakeHttp();
-        NewsSummarizer::fake(fn () => ['summary' => ' ', 'vocabulary' => []])->preventStrayPrompts();
+        NewsSummarizer::fake(fn () => ['is_article' => true, 'summary' => ' ', 'vocabulary' => []])->preventStrayPrompts();
 
         $this->artisan('news:fetch')
             ->expectsOutputToContain('The model returned an empty summary or vocabulary')
@@ -135,10 +135,26 @@ class FetchDailyNewsTest extends TestCase
         $this->assertSame(0, NewsArticle::count());
     }
 
+    public function test_a_page_the_model_says_is_not_an_article_is_skipped_and_not_asked_again(): void
+    {
+        $this->fakeHttp();
+        NewsSummarizer::fake(fn () => ['is_article' => false, 'summary' => '', 'vocabulary' => []])->preventStrayPrompts();
+
+        $this->artisan('news:fetch')
+            ->expectsOutputToContain('Saved 0, skipped 3, failed 0.')
+            ->assertSuccessful();
+        NewsSummarizer::assertPromptedTimes(2);
+        $this->assertSame(0, NewsArticle::count());
+
+        $this->artisan('news:fetch')->assertSuccessful();
+        NewsSummarizer::assertPromptedTimes(2);
+    }
+
     public function test_vocabulary_is_trimmed_deduplicated_and_capped(): void
     {
         $this->fakeHttp();
         NewsSummarizer::fake(fn () => [
+            'is_article' => true,
             'summary' => self::SUMMARY,
             'vocabulary' => [' Overhaul ', 'overhaul', '', 'congestion', 'stall', 'nuance', 'scrutiny', 'bolster'],
         ])->preventStrayPrompts();
@@ -167,6 +183,7 @@ class FetchDailyNewsTest extends TestCase
     {
         $this->fakeHttp();
         NewsSummarizer::fake(fn () => [
+            'is_article' => true,
             'summary' => "  First paragraph.\nSecond paragraph.\r\n\r\n\r\nThird paragraph.  ",
             'vocabulary' => self::VOCABULARY,
         ])->preventStrayPrompts();
@@ -370,6 +387,7 @@ class FetchDailyNewsTest extends TestCase
     private function fakeSummaries(): void
     {
         NewsSummarizer::fake(fn () => [
+            'is_article' => true,
             'summary' => self::SUMMARY,
             'vocabulary' => self::VOCABULARY,
         ])->preventStrayPrompts();

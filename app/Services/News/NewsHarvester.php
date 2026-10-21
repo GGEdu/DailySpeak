@@ -142,14 +142,21 @@ class NewsHarvester
         }
 
         try {
-            [$summary, $vocabulary] = $this->summarise($item, $text);
+            $article = $this->summarise($item, $text);
+
+            // The model says the page is not an article (a video, a live blog, a listing): remember it like a page without text.
+            if ($article === null) {
+                Cache::put($this->skipKey($item->url), true, now()->addDays(config('news.skipped_items_days')));
+
+                return [self::SKIPPED, 'no article text'];
+            }
 
             NewsArticle::create([
                 'news_source_id' => $source?->id,
                 'title' => Str::limit($item->title, 255, ''),
                 'source_url' => $item->url,
-                'summary' => $summary,
-                'key_vocabulary' => $vocabulary,
+                'summary' => $article['summary'],
+                'key_vocabulary' => $article['vocabulary'],
                 'published_at' => $item->publishedAt,
             ]);
         } catch (Throwable $e) {
@@ -164,11 +171,15 @@ class NewsHarvester
     /**
      * Ask the LLM for the summary and key vocabulary of an article.
      *
-     * @return array{0: string, 1: list<string>}
+     * @return array{summary: string, vocabulary: list<string>}|null null when the model says the page is not an article
      */
-    private function summarise(FeedItem $item, string $text): array
+    private function summarise(FeedItem $item, string $text): ?array
     {
         $response = NewsSummarizer::make()->prompt("Title: {$item->title}\n\n{$text}");
+
+        if (($response['is_article'] ?? false) !== true) {
+            return null;
+        }
 
         // Models often separate paragraphs with a single newline; the UI expects blank lines.
         $summary = collect(preg_split('/\R+/u', (string) ($response['summary'] ?? '')))
@@ -188,7 +199,7 @@ class NewsHarvester
             throw new UnexpectedValueException('The model returned an empty summary or vocabulary.');
         }
 
-        return [$summary, $vocabulary];
+        return ['summary' => $summary, 'vocabulary' => $vocabulary];
     }
 
     /**
