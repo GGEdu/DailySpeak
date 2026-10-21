@@ -17,15 +17,18 @@ defineEmits(['play']);
                 {{ message.role === 'user' ? 'You' : 'Tutor' }}
             </p>
 
-            <p v-if="message.pending" class="flex items-center gap-1 py-1.5" aria-label="Transcribing">
-                <span v-for="dot in 3" :key="dot" class="size-1.5 animate-pulse rounded-full bg-ink-400" :style="{ animationDelay: `${dot * 150}ms` }" />
+            <p v-if="message.pending" role="status" class="flex items-center gap-1 py-1.5">
+                <span class="sr-only">Transcribing</span>
+                <span class="flex items-center gap-1" aria-hidden="true">
+                    <span v-for="dot in 3" :key="dot" class="size-1.5 animate-pulse rounded-full bg-ink-400 motion-reduce:animate-none" :style="{ animationDelay: `${dot * 150}ms` }" />
+                </span>
             </p>
             <p v-else data-selectable>{{ message.transcript }}</p>
 
             <button
                 v-if="message.audio_url && !message.pending"
                 type="button"
-                class="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-ink-400 transition hover:text-ink-100"
+                class="mt-2 inline-flex min-h-6 items-center gap-1.5 text-sm font-medium text-ink-400 transition hover:text-ink-100"
                 @click="$emit('play')"
             >
                 <svg class="size-3.5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
