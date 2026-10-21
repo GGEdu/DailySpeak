@@ -3,6 +3,8 @@
 namespace Tests\Feature;
 
 use App\Models\Debate;
+use App\Models\NewsArticle;
+use App\Models\NewsSource;
 use App\Models\User;
 use App\Providers\AppServiceProvider;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -67,6 +69,25 @@ class AdminTest extends TestCase
     {
         $this->assertTrue(Gate::forUser(User::factory()->admin()->create())->allows('viewHorizon'));
         $this->assertFalse(Gate::forUser(User::factory()->create())->allows('viewHorizon'));
+    }
+
+    public function test_usage_results_of_the_sources_are_for_admins_only(): void
+    {
+        $source = NewsSource::sole();
+        $source->forceFill(['policy_status' => 'warning', 'policy_note' => 'Only for admins.', 'policy_checked_at' => now()])->save();
+        NewsArticle::factory()->for($source)->create();
+
+        $this->assertArrayNotHasKey('policy_note', $source->toArray());
+
+        $this->actingAs(User::factory()->create())
+            ->get('/feed')
+            ->assertOk()
+            ->assertDontSee('Only for admins.')
+            ->assertDontSee('policy_');
+
+        $this->actingAs(User::factory()->admin()->create())
+            ->get('/admin/sources')
+            ->assertSee('Only for admins.');
     }
 
     private function debateFor(User $user): Debate

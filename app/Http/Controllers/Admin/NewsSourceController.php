@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreNewsSourceRequest;
 use App\Jobs\FetchNewsSource;
 use App\Models\NewsSource;
+use App\Services\News\SourceUsagePolicy;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -33,6 +34,10 @@ class NewsSourceController extends Controller
                     'articles_count' => $source->articles_count,
                     'last_fetched_at' => $source->last_fetched_at,
                     'last_error' => $source->last_error,
+                    // Admins only: this page is the one place the usage-policy result is shown.
+                    'policy_status' => $source->policy_status,
+                    'policy_note' => $source->policy_note,
+                    'policy_checked_at' => $source->policy_checked_at,
                 ]),
             'categories' => collect(config('news.categories'))
                 ->map(fn (string $label, string $key) => ['key' => $key, 'label' => $label])
@@ -40,18 +45,34 @@ class NewsSourceController extends Controller
         ]);
     }
 
-    public function store(StoreNewsSourceRequest $request): RedirectResponse
+    /**
+     * Save the source. Its usage terms are checked now, and a problem is a heads-up, never a refusal.
+     */
+    public function store(StoreNewsSourceRequest $request, SourceUsagePolicy $policy): RedirectResponse
     {
         $source = NewsSource::create($request->validated());
+        $result = $policy->check($source, $request->feedItems());
 
-        return back()->with('status', "{$source->name} added. It will be read in the next daily run.");
+        if (! $result->needsAttention()) {
+            return back()->with('status', "{$source->name} added. It will be read in the next daily run.");
+        }
+
+        return back()->with('status', "{$source->name} added. Heads-up: {$result->note}");
     }
 
     /**
-     * Pause or resume a source.
+     * Pause or resume a source, or check its usage terms again (`check_policy`).
+     *
+     * The re-check shares this route so the admin page needs no route of its own.
      */
-    public function update(Request $request, NewsSource $source): RedirectResponse
+    public function update(Request $request, NewsSource $source, SourceUsagePolicy $policy): RedirectResponse
     {
+        if ($request->boolean('check_policy')) {
+            $result = $policy->check($source);
+
+            return back()->with('status', "{$source->name} checked. {$result->note}");
+        }
+
         $source->update($request->validate([
             'is_active' => ['sometimes', 'required', 'boolean'],
             'category' => ['sometimes', 'required', Rule::in(array_keys(config('news.categories')))],

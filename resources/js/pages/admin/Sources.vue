@@ -1,5 +1,6 @@
 <script setup>
 import { Head, router, useForm } from '@inertiajs/vue3';
+import { ref } from 'vue';
 import TextField from '../../components/TextField.vue';
 import AppLayout from '../../layouts/AppLayout.vue';
 import { timeAgo } from '../../lib/time';
@@ -22,7 +23,29 @@ const add = () => form.post('/admin/sources', { preserveScroll: true, onSuccess:
 
 const toggle = (source) => router.patch(`/admin/sources/${source.id}`, { is_active: !source.is_active }, { preserveScroll: true });
 
-const changeCategory = (source, category) => router.patch(`/admin/sources/${source.id}`, { category }, { preserveScroll: true });
+// The select shows the server's category: if the server refuses the change, it goes back to the previous one.
+const changeCategory = (source, event) => {
+    const select = event.target;
+    const previous = source.category ?? '';
+
+    router.patch(`/admin/sources/${source.id}`, { category: select.value }, {
+        preserveScroll: true,
+        onError: () => {
+            select.value = previous;
+        },
+    });
+};
+
+const checkPolicy = (source) => router.patch(`/admin/sources/${source.id}`, { check_policy: true }, { preserveScroll: true });
+
+// Which rows have their usage note open, by source id.
+const notesOpen = ref({});
+
+const toggleNote = (source) => {
+    notesOpen.value = { ...notesOpen.value, [source.id]: !notesOpen.value[source.id] };
+};
+
+const policyBadge = (source) => (source.policy_status === 'warning' ? 'Usage terms' : 'Terms not checked');
 
 const fetchNow = (source) => router.post(`/admin/sources/${source.id}/fetch`, {}, { preserveScroll: true });
 
@@ -92,11 +115,23 @@ const remove = (source) => {
                             >
                                 {{ source.is_active ? 'Active' : 'Paused' }}
                             </span>
+                            <button
+                                v-if="source.policy_status !== 'ok'"
+                                type="button"
+                                class="rounded-full px-2 py-0.5 text-[11px] font-medium transition hover:brightness-125"
+                                :class="source.policy_status === 'warning' ? 'bg-amber-400/10 text-amber-300' : 'bg-white/5 text-ink-300'"
+                                :aria-expanded="notesOpen[source.id] ? 'true' : 'false'"
+                                :aria-controls="`policy-note-${source.id}`"
+                                :aria-label="`${policyBadge(source)}: ${source.name}`"
+                                @click="toggleNote(source)"
+                            >
+                                {{ policyBadge(source) }}
+                            </button>
                             <select
                                 :value="source.category ?? ''"
                                 :aria-label="`Category of ${source.name}`"
                                 class="rounded-md border border-white/10 bg-ink-950/60 px-2 py-0.5 text-xs text-ink-200 outline-none focus:border-speaking/60"
-                                @change="changeCategory(source, $event.target.value)"
+                                @change="changeCategory(source, $event)"
                             >
                                 <option value="" disabled>No category</option>
                                 <option v-for="category in categories" :key="category.key" :value="category.key">{{ category.label }}</option>
@@ -108,16 +143,45 @@ const remove = (source) => {
                             {{ source.last_fetched_at ? `last read ${timeAgo(source.last_fetched_at)}` : 'never read yet' }}
                         </p>
                         <p v-if="source.last_error" class="mt-2 text-xs text-listening">Last run failed: {{ source.last_error }}</p>
+                        <p v-show="notesOpen[source.id]" :id="`policy-note-${source.id}`" class="mt-2 max-w-prose text-xs text-ink-300">
+                            {{ source.policy_note ?? 'Not checked yet. Use Re-check to read its robots.txt and publisher terms.' }}
+                            <span v-if="source.policy_checked_at" class="text-ink-500">Checked {{ timeAgo(source.policy_checked_at) }}.</span>
+                        </p>
                     </div>
 
                     <div class="flex shrink-0 gap-2 text-sm">
-                        <button type="button" class="rounded-lg border border-white/10 px-3 py-1.5 text-ink-200 transition hover:bg-white/5" @click="fetchNow(source)">
+                        <button
+                            type="button"
+                            class="rounded-lg border border-white/10 px-3 py-1.5 text-ink-200 transition hover:bg-white/5"
+                            :aria-label="`Fetch now: ${source.name}`"
+                            @click="fetchNow(source)"
+                        >
                             Fetch now
                         </button>
-                        <button type="button" class="rounded-lg border border-white/10 px-3 py-1.5 text-ink-200 transition hover:bg-white/5" @click="toggle(source)">
+                        <button
+                            type="button"
+                            class="rounded-lg border border-white/10 px-3 py-1.5 text-ink-200 transition hover:bg-white/5"
+                            :aria-label="`Re-check: ${source.name}`"
+                            @click="checkPolicy(source)"
+                        >
+                            Re-check
+                        </button>
+                        <button
+                            type="button"
+                            class="rounded-lg border border-white/10 px-3 py-1.5 text-ink-200 transition hover:bg-white/5"
+                            :aria-label="`${source.is_active ? 'Pause' : 'Activate'}: ${source.name}`"
+                            @click="toggle(source)"
+                        >
                             {{ source.is_active ? 'Pause' : 'Activate' }}
                         </button>
-                        <button type="button" class="rounded-lg px-3 py-1.5 text-listening transition hover:bg-listening/10" @click="remove(source)">Delete</button>
+                        <button
+                            type="button"
+                            class="rounded-lg px-3 py-1.5 text-listening transition hover:bg-listening/10"
+                            :aria-label="`Delete: ${source.name}`"
+                            @click="remove(source)"
+                        >
+                            Delete
+                        </button>
                     </div>
                 </div>
             </li>

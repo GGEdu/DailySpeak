@@ -55,13 +55,18 @@ class NewsSourcesTest extends TestCase
 
     public function test_admins_can_add_a_readable_feed(): void
     {
-        Http::fake(['feeds.example.test/*' => Http::response(file_get_contents(base_path('tests/Fixtures/news/feed.xml')))]);
+        Http::fake([
+            'feeds.example.test/robots.txt' => Http::response("User-agent: *\nAllow: /\n"),
+            'www.bbc.co.uk/robots.txt' => Http::response("User-agent: *\nAllow: /\n"),
+            'feeds.example.test/*' => Http::response(file_get_contents(base_path('tests/Fixtures/news/feed.xml'))),
+        ]);
 
+        // The articles are BBC pages, so the known BBC licence is a heads-up even though robots.txt allows everything.
         $this->actingAs($this->admin)
             ->from('/admin/sources')
             ->post('/admin/sources', ['name' => 'Example – World', 'feed_url' => 'https://feeds.example.test/rss.xml', 'category' => 'world'])
             ->assertRedirect('/admin/sources')
-            ->assertSessionHas('status', 'Example – World added. It will be read in the next daily run.');
+            ->assertSessionHas('status', 'Example – World added. Heads-up: The BBC licenses its content for personal, non-commercial use only.');
 
         $this->assertDatabaseHas('news_sources', [
             'feed_url' => 'https://feeds.example.test/rss.xml',
@@ -148,10 +153,11 @@ class NewsSourcesTest extends TestCase
             'https://[::1]/rss.xml',
         ];
 
+        // Same message as an unreachable host (see the test above): the wording must not reveal the internal network.
         foreach ($cases as $url) {
             $this->actingAs($this->admin)
                 ->post('/admin/sources', ['name' => 'Internal', 'feed_url' => $url])
-                ->assertSessionHasErrors(['feed_url' => 'This URL points to a private or reserved network address.']);
+                ->assertSessionHasErrors(['feed_url' => 'No RSS feed could be read at this URL.']);
         }
 
         Http::assertNothingSent();
@@ -188,6 +194,72 @@ class NewsSourcesTest extends TestCase
         $this->actingAs($user)->delete("/admin/sources/{$source->id}")->assertForbidden();
 
         $this->assertTrue($source->fresh()->is_active);
+    }
+
+    public function test_a_source_whose_robots_txt_blocks_an_ai_crawler_is_saved_with_a_heads_up(): void
+    {
+        Http::fake([
+            'feeds.example.test/robots.txt' => Http::response("User-agent: *\nAllow: /\n"),
+            'www.bbc.co.uk/robots.txt' => Http::response("User-agent: GPTBot\nDisallow: /news/articles\n"),
+            'feeds.example.test/rss.xml' => Http::response(file_get_contents(base_path('tests/Fixtures/news/feed.xml'))),
+        ]);
+
+        $this->actingAs($this->admin)
+            ->post('/admin/sources', ['name' => 'Example – World', 'feed_url' => 'https://feeds.example.test/rss.xml', 'category' => 'world'])
+            ->assertRedirect()
+            ->assertSessionHas('status', 'Example – World added. Heads-up: robots.txt on www.bbc.co.uk blocks GPTBot from the pages checked. The BBC licenses its content for personal, non-commercial use only.');
+
+        // A warning never stops the source: it is saved and active, and its result is kept for admins.
+        $this->assertDatabaseHas('news_sources', ['feed_url' => 'https://feeds.example.test/rss.xml', 'is_active' => true, 'policy_status' => 'warning']);
+        $this->assertNotNull(NewsSource::where('feed_url', 'https://feeds.example.test/rss.xml')->value('policy_checked_at'));
+    }
+
+    public function test_an_unreadable_robots_file_never_blocks_the_add(): void
+    {
+        Http::fake([
+            'feeds.example.test/robots.txt' => Http::response('', 503),
+            'www.bbc.co.uk/robots.txt' => Http::response('', 503),
+            'feeds.example.test/rss.xml' => Http::response(file_get_contents(base_path('tests/Fixtures/news/feed.xml'))),
+        ]);
+
+        $this->actingAs($this->admin)
+            ->post('/admin/sources', ['name' => 'Example – World', 'feed_url' => 'https://feeds.example.test/rss.xml', 'category' => 'world'])
+            ->assertRedirect()
+            ->assertSessionHas('status', 'Example – World added. Heads-up: The BBC licenses its content for personal, non-commercial use only. robots.txt on feeds.example.test could not be read (HTTP 503), so it was not checked. robots.txt on www.bbc.co.uk could not be read (HTTP 503), so it was not checked.');
+
+        $this->assertDatabaseHas('news_sources', ['feed_url' => 'https://feeds.example.test/rss.xml', 'is_active' => true, 'policy_status' => 'warning']);
+    }
+
+    public function test_admins_can_check_a_sources_usage_terms_again(): void
+    {
+        Http::fake([
+            'feeds.bbci.co.uk/robots.txt' => Http::response("User-agent: *\nAllow: /\n"),
+            'www.bbc.co.uk/robots.txt' => Http::response("User-agent: ClaudeBot\nDisallow: /\n"),
+            'feeds.bbci.co.uk/news/world/rss.xml' => Http::response(file_get_contents(base_path('tests/Fixtures/news/feed.xml'))),
+        ]);
+        $source = NewsSource::sole();
+
+        $this->actingAs($this->admin)
+            ->patch("/admin/sources/{$source->id}", ['check_policy' => true])
+            ->assertRedirect()
+            ->assertSessionHas('status', fn (string $status) => str_starts_with($status, 'BBC News – World checked. ') && str_contains($status, 'ClaudeBot'));
+
+        $this->assertSame('warning', $source->fresh()->policy_status);
+        $this->assertTrue($source->fresh()->is_active);
+        $this->assertSame('world', $source->fresh()->category);
+    }
+
+    public function test_the_sources_page_shows_each_sources_usage_result_to_admins(): void
+    {
+        $source = NewsSource::sole();
+        $source->forceFill(['policy_status' => 'warning', 'policy_note' => 'Blocks GPTBot.', 'policy_checked_at' => now()])->save();
+
+        $this->actingAs($this->admin)
+            ->get('/admin/sources')
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('sources.0.policy_status', 'warning')
+                ->where('sources.0.policy_note', 'Blocks GPTBot.')
+                ->has('sources.0.policy_checked_at'));
     }
 
     public function test_guests_are_sent_to_login(): void
