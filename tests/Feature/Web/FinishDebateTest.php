@@ -91,6 +91,21 @@ class FinishDebateTest extends TestCase
         $this->assertSame(DebateStatus::Active, $debate->fresh()->status);
     }
 
+    public function test_each_user_can_finish_at_most_five_debates_a_minute(): void
+    {
+        $debate = Debate::factory()->create();
+
+        foreach (range(1, 5) as $attempt) {
+            $this->actingAs($debate->user)->post("/debates/{$debate->id}/finish")->assertRedirect();
+        }
+
+        $this->actingAs($debate->user)->post("/debates/{$debate->id}/finish")->assertTooManyRequests();
+
+        // The limit is per user: another user, from the same address, is not held back.
+        $other = Debate::factory()->create();
+        $this->actingAs($other->user)->post("/debates/{$other->id}/finish")->assertRedirect();
+    }
+
     public function test_the_report_is_part_of_the_debate_page(): void
     {
         $debate = Debate::factory()->completed()->create();

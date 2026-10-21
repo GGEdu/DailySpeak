@@ -61,6 +61,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         ->can('view', 'debate')
         ->name('debates.show');
     Route::post('/debates/{debate}/finish', [DebateSessionController::class, 'finish'])
+        ->middleware('throttle:debate-finish') // each report is a paid evaluation
         ->can('finish', 'debate')
         ->name('debates.finish');
 

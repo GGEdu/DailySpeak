@@ -36,6 +36,11 @@ class AppServiceProvider extends ServiceProvider
     public const LOOKUPS_PER_DAY = 500;
 
     /**
+     * Debate reports a user may ask for per minute: each one is a paid evaluation.
+     */
+    public const DEBATE_FINISHES_PER_MINUTE = 5;
+
+    /**
      * Sign-in attempts for one email from one address per minute, on top of the per-address limit.
      */
     public const LOGINS_PER_EMAIL_AND_ADDRESS_PER_MINUTE = 6;
@@ -83,6 +88,9 @@ class AppServiceProvider extends ServiceProvider
                 Limit::perDay(self::LOOKUPS_PER_DAY)->by('day:'.$who),
             ];
         });
+
+        RateLimiter::for('debate-finish', fn (Request $request) => Limit::perMinute(self::DEBATE_FINISHES_PER_MINUTE)
+            ->by('finish:'.($request->user()?->id ?: $request->ip())));
 
         RateLimiter::for('debate-audio', function (Request $request) {
             if ($request->user()?->is_admin) {
