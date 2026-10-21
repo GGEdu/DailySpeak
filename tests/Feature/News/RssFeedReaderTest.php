@@ -57,6 +57,33 @@ class RssFeedReaderTest extends TestCase
         $this->assertSame('UTC', $items->get(1)->publishedAt->tzName);
     }
 
+    public function test_tracking_parameters_and_fragments_are_removed_and_the_rest_is_kept_as_written(): void
+    {
+        $parse = fn (string $link) => app(RssFeedReader::class)
+            ->parse('<rss version="2.0"><channel><item><title>Story</title><link>'.htmlspecialchars($link).'</link></item></channel></rss>')
+            ->first()
+            ->url;
+
+        $this->assertSame(
+            'https://example.test/a?b=2&c=%20x+y&d',
+            $parse('https://example.test/a?utm_source=x&b=2&at_medium=RSS&c=%20x+y&traffic_source=rss&fbclid=abc&d&UTM_campaign=z#section'),
+        );
+        $this->assertSame('https://example.test/a', $parse('https://example.test/a?utm_source=x#top'));
+        $this->assertSame('https://example.test/a?page=2', $parse('https://example.test/a?page=2#comments'));
+    }
+
+    public function test_a_publication_date_in_the_future_is_brought_back_to_now(): void
+    {
+        $this->freezeSecond();
+
+        $items = app(RssFeedReader::class)->parse(
+            '<rss version="2.0"><channel><item><title>Story</title><link>https://example.test/a</link>'
+            .'<pubDate>Wed, 07 Oct 2099 12:00:00 GMT</pubDate></item></channel></rss>'
+        );
+
+        $this->assertTrue($items->first()->publishedAt->equalTo(now()));
+    }
+
     public function test_it_rejects_documents_that_are_not_rss(): void
     {
         $this->expectException(UnexpectedValueException::class);
