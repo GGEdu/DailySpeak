@@ -8,6 +8,7 @@ use App\Models\NewsSource;
 use Carbon\CarbonInterface;
 use Closure;
 use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -36,6 +37,9 @@ class NewsHarvester
      * downloading, so they cost no request and no LLM call.
      */
     private const NON_ARTICLE_PATH = '#/(videos?|live|audio|podcasts?)(/|$)#i';
+
+    /** Longest URL the source_url column holds; a longer one would fail to store after the model was paid. */
+    private const MAX_URL_LENGTH = 2048;
 
     /** Markers around the page text in the prompt; the instructions say what is between them is data. */
     private const TEXT_OPEN = '<article_text>';
@@ -86,7 +90,10 @@ class NewsHarvester
             return new HarvestResult(failed: 1, readError: $message);
         }
 
-        $known = NewsArticle::whereIn('source_url', $items->pluck('url'))->pluck('source_url');
+        // Looked up in slices, so a feed with thousands of items does not exceed the database's bind limit.
+        $known = collect($items->pluck('url'))
+            ->chunk(500)
+            ->flatMap(fn (Collection $urls) => NewsArticle::whereIn('source_url', $urls)->pluck('source_url'));
         $saved = $skipped = $failed = $downloads = $consecutiveFailures = 0;
         $firstError = null;
         $outOfTime = $tooManyFailures = false;
@@ -109,6 +116,13 @@ class NewsHarvester
             if ($this->isNotAnArticleUrl($item->url)) {
                 $skipped++;
                 $this->notify($onItem, $item->title, self::SKIPPED, 'not an article (by its URL)');
+
+                continue;
+            }
+
+            if (strlen($item->url) > self::MAX_URL_LENGTH) {
+                $skipped++;
+                $this->notify($onItem, $item->title, self::SKIPPED, 'URL is too long to store');
 
                 continue;
             }

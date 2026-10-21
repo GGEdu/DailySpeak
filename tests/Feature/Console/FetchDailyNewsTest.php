@@ -212,6 +212,20 @@ class FetchDailyNewsTest extends TestCase
         $this->assertStringContainsString('Database is down', $this->source->fresh()->last_error);
     }
 
+    public function test_a_url_too_long_to_store_is_skipped_before_anything_is_paid(): void
+    {
+        $long = 'https://www.bbc.co.uk/news/articles/'.str_repeat('a', 2100);
+        $this->fakeFeed([$long, 'https://www.bbc.co.uk/news/articles/first']);
+        $this->fakeSummaries();
+
+        $this->artisan('news:fetch', ['--limit' => 2])
+            ->expectsOutputToContain('Saved 1, skipped 1, failed 0.')
+            ->assertSuccessful();
+
+        NewsSummarizer::assertPromptedTimes(1);
+        $this->assertSame([], $this->recordedRequestsTo('/news/articles/aaaa'));
+    }
+
     public function test_a_failed_summary_is_not_sent_to_the_model_again_for_a_day(): void
     {
         $this->fakeHttp();
