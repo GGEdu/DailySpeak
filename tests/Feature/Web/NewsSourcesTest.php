@@ -148,10 +148,11 @@ class NewsSourcesTest extends TestCase
             'https://[::1]/rss.xml',
         ];
 
+        // Same message as an unreachable host: the wording must not reveal the internal network (S-17).
         foreach ($cases as $url) {
             $this->actingAs($this->admin)
                 ->post('/admin/sources', ['name' => 'Internal', 'feed_url' => $url])
-                ->assertSessionHasErrors(['feed_url' => 'This URL points to a private or reserved network address.']);
+                ->assertSessionHasErrors(['feed_url' => 'No RSS feed could be read at this URL.']);
         }
 
         Http::assertNothingSent();

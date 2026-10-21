@@ -4,7 +4,6 @@ namespace App\Http\Requests;
 
 use App\Models\NewsSource;
 use App\Services\News\RssFeedReader;
-use App\Services\News\UnsafeUrlException;
 use Closure;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
@@ -45,15 +44,14 @@ class StoreNewsSourceRequest extends FormRequest
 
     /**
      * Only save feeds the harvester can actually read, and never from a non-public address.
+     *
+     * Every failure gets the same message, private addresses included: a different message would tell an
+     * admin which hosts are on the internal network (see the S-17 finding).
      */
     private function readableFeed(string $attribute, string $url, Closure $fail): void
     {
         try {
             $items = app(RssFeedReader::class)->read($url);
-        } catch (UnsafeUrlException $e) {
-            $fail($e->getMessage());
-
-            return;
         } catch (Throwable) {
             $fail('No RSS feed could be read at this URL.');
 
