@@ -11,6 +11,36 @@ export function audioContext() {
 }
 
 /**
+ * Start the shared context from a user gesture without waiting for it: on iOS resume() can stay
+ * pending for good, so nothing may depend on it finishing.
+ */
+export function unlockAudio() {
+    try {
+        audioContext().resume().catch(() => {});
+    } catch {
+        // No Web Audio at all: the recorder and the player report that when they need it.
+    }
+}
+
+/**
+ * Wait for the shared context to be running, but no longer than `deadline` ms.
+ */
+export async function resumeAudio(deadline = 1_000) {
+    let timer;
+    const timeout = new Promise((resolve) => {
+        timer = setTimeout(resolve, deadline);
+    });
+
+    try {
+        await Promise.race([audioContext().resume(), timeout]);
+    } catch {
+        // Playback is attempted anyway; the player reports it if the audio cannot start.
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+/**
  * Create an analyser for visualising a source (microphone stream or <audio> element).
  */
 export function createAnalyser() {

@@ -19,3 +19,40 @@ test('a secure page in a browser without microphone recording is unsupported', (
 test('a secure page that can record has no blocker', () => {
     assert.equal(recordingBlocker({ secureContext: true, mediaDevices, mediaRecorder: recorder }), null);
 });
+
+test('the recorder format is the first one the browser can record, and its file extension follows it', async () => {
+    const { extensionFor, preferredRecordingType } = await import('./audio.js');
+    const supported = ['audio/mp4'];
+    globalThis.window = { MediaRecorder: { isTypeSupported: (type) => supported.includes(type) } };
+
+    try {
+        assert.equal(preferredRecordingType(), 'audio/mp4');
+        supported.length = 0;
+        assert.equal(preferredRecordingType(), '');
+
+        assert.equal(extensionFor('audio/mp4;codecs=mp4a.40.2'), 'm4a');
+        assert.equal(extensionFor('audio/ogg;codecs=opus'), 'ogg');
+        assert.equal(extensionFor('audio/webm;codecs=opus'), 'webm');
+        assert.equal(extensionFor(''), 'webm');
+    } finally {
+        delete globalThis.window;
+    }
+});
+
+test('waiting for the audio context gives up at the deadline when resume() never settles', async () => {
+    const { resumeAudio } = await import('./audio.js');
+    globalThis.AudioContext = class {
+        resume() {
+            return new Promise(() => {});
+        }
+    };
+
+    try {
+        const started = Date.now();
+        await resumeAudio(20);
+
+        assert.ok(Date.now() - started < 1_000);
+    } finally {
+        delete globalThis.AudioContext;
+    }
+});
