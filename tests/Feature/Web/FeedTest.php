@@ -5,9 +5,15 @@ namespace Tests\Feature\Web;
 use App\Models\Debate;
 use App\Models\NewsArticle;
 use App\Models\User;
+use GuzzleHttp\Client as HttpClient;
+use GuzzleHttp\Exception\ConnectException;
+use GuzzleHttp\Handler\MockHandler;
+use GuzzleHttp\HandlerStack;
+use GuzzleHttp\Psr7\Request;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Exceptions;
 use Inertia\Testing\AssertableInertia as Assert;
+use Meilisearch\Client as MeilisearchClient;
 use Tests\TestCase;
 
 class FeedTest extends TestCase
@@ -114,6 +120,24 @@ class FeedTest extends TestCase
 
         $this->actingAs(User::factory()->create())
             ->get('/feed?q=HEATWAVE')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page->has('articles', 1)->where('articles.0.id', $match->id));
+
+        Exceptions::assertReportedCount(1);
+    }
+
+    public function test_the_search_falls_back_to_the_database_when_the_engine_hangs(): void
+    {
+        $match = NewsArticle::factory()->create(['title' => 'Heatwave hits Europe']);
+        // A request that hits the timeout fails like a refused connection: no answer ever arrives.
+        $timeout = new ConnectException('cURL error 28: Operation timed out', new Request('GET', '/indexes'));
+        $http = new HttpClient(['handler' => HandlerStack::create(new MockHandler([$timeout]))]);
+        $this->app->instance(MeilisearchClient::class, new MeilisearchClient('http://meilisearch.test', null, $http));
+        config(['scout.driver' => 'meilisearch']);
+        Exceptions::fake();
+
+        $this->actingAs(User::factory()->create())
+            ->get('/feed?q=heatwave')
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page->has('articles', 1)->where('articles.0.id', $match->id));
 
