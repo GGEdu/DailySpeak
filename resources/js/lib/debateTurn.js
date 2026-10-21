@@ -91,12 +91,16 @@ export async function uploadTurn(url, blob, turn = null, send = postForm) {
  * - newTurnId: () → string, the id of the next turn (random UUIDs; injectable for tests)
  */
 export function createDebateTurns({ store, recorder, player, upload, reload, timers = globalThis, newTurnId = randomTurnId }) {
-    let current = null; // the turn being answered: { id, baseline, done, timer }
+    let current = null; // the turn being answered: { id, baseline, done, timer, userId }
     const retired = new Set(); // ids of turns that are over: their late events belong to nobody
+    const deleted = new Set(); // ids of messages the server deleted; ids are never reused, so old copies cannot bring them back
+    let seenEvents = 0; // realtime events so far: a copy fetched while one arrives may predate it
     let speakToken = 0;
     let reloading = null;
 
     const pending = () => (current && !current.done ? current : null);
+    const without = (messages) => messages.filter((message) => !deleted.has(message.id));
+    const mergeTranscript = (messages, incoming) => mergeMessages(without(messages), without(incoming));
 
     function finish(turn) {
         if (!turn) {
@@ -111,9 +115,14 @@ export function createDebateTurns({ store, recorder, player, upload, reload, tim
         }
     }
 
-    function failTurn(turn, text) {
+    function failTurn(turn, text, serverDeleted = false) {
         finish(turn);
-        store.messages = withoutPending(store.messages);
+
+        if (serverDeleted && turn.userId != null) {
+            deleted.add(turn.userId);
+        }
+
+        store.messages = without(withoutPending(store.messages));
 
         if (store.state === 'thinking') {
             store.state = 'idle';
@@ -160,12 +169,26 @@ export function createDebateTurns({ store, recorder, player, upload, reload, tim
     }
 
     function onUserTranscribed(event) {
+        seenEvents += 1;
         const message = { id: event.message_id, role: 'user', transcript: event.transcript };
 
-        store.messages = claims(event) ? upsertMessage(withoutPending(store.messages), message) : addMissing(store.messages, message);
+        if (!claims(event)) {
+            store.messages = addMissing(store.messages, message);
+
+            return;
+        }
+
+        const turn = pending();
+
+        if (turn) {
+            turn.userId = event.message_id; // kept so that a failure which deletes it can take it off the transcript
+        }
+
+        store.messages = upsertMessage(withoutPending(store.messages), message);
     }
 
     function onReply(event) {
+        seenEvents += 1;
         const user = { id: event.user_message.id, role: 'user', transcript: event.user_message.transcript };
         const reply = { id: event.message_id, role: 'assistant', transcript: event.transcript, audio_url: event.audio_url };
 
@@ -178,10 +201,16 @@ export function createDebateTurns({ store, recorder, player, upload, reload, tim
         completeReply(pending(), user, reply);
     }
 
+    // ProcessVoiceDebate deletes the turn's message when it gives up on the turn (processing_failed, debate_ended).
+    // A no_speech turn never had one: the server stores nothing for an empty transcript.
+    const SERVER_DELETES_MESSAGE = ['processing_failed', 'debate_ended'];
+
     function onTurnFailed(event) {
+        seenEvents += 1;
+
         if (claims(event)) {
             const text = { no_speech: TEXT.noSpeech, debate_ended: TEXT.ended }[event.reason] ?? TEXT.failed;
-            failTurn(pending(), text);
+            failTurn(pending(), text, SERVER_DELETES_MESSAGE.includes(event.reason));
         }
     }
 
@@ -194,11 +223,18 @@ export function createDebateTurns({ store, recorder, player, upload, reload, tim
         return Promise.race([promise, deadline]).finally(() => timers.clearTimeout(timer));
     }
 
-    // One reload at a time: callers that ask while one is in flight share its answer.
+    // One reload at a time: callers that ask while one is in flight share its answer. `upToDate` is false when a
+    // realtime event arrived while the reload was in flight: its copy may predate that event.
     function reloadOnce() {
-        reloading ??= withDeadline(reload()).finally(() => {
-            reloading = null;
-        });
+        if (!reloading) {
+            const started = seenEvents;
+
+            reloading = withDeadline(reload())
+                .then((messages) => ({ messages, upToDate: seenEvents === started }))
+                .finally(() => {
+                    reloading = null;
+                });
+        }
 
         return reloading;
     }
@@ -206,12 +242,26 @@ export function createDebateTurns({ store, recorder, player, upload, reload, tim
     /**
      * Merge a fresh transcript. Returns true when it holds the reply to the pending turn, which is then shown
      * (and played) as if the event had arrived.
+     *
+     * A copy that is up to date is the server's word on the pending turn: a message after its baseline that the
+     * copy lacks was deleted, because the turn failed and its failure event was missed. It leaves the transcript.
      */
-    function reconcile(incoming) {
+    function reconcile(incoming, upToDate) {
         const turn = pending();
-        const found = turn ? findTurnMessages(incoming, turn.baseline) : null;
+        const found = turn ? findTurnMessages(without(incoming), turn.baseline) : null;
+        let kept = found?.user ? withoutPending(store.messages) : store.messages;
 
-        store.messages = mergeMessages(found?.user ? withoutPending(store.messages) : store.messages, incoming);
+        if (turn && upToDate) {
+            const present = new Set(incoming.map((message) => message.id));
+
+            for (const message of kept) {
+                if (!message.pending && Number(message.id) > turn.baseline && !present.has(message.id)) {
+                    deleted.add(message.id);
+                }
+            }
+        }
+
+        store.messages = mergeTranscript(kept, incoming);
 
         if (!found?.reply) {
             return false;
@@ -224,7 +274,9 @@ export function createDebateTurns({ store, recorder, player, upload, reload, tim
     }
 
     async function refresh() {
-        return reconcile(await reloadOnce());
+        const { messages, upToDate } = await reloadOnce();
+
+        return reconcile(messages, upToDate);
     }
 
     async function expire(turn) {
@@ -269,7 +321,7 @@ export function createDebateTurns({ store, recorder, player, upload, reload, tim
             return;
         }
 
-        const turn = { id: newTurnId(), baseline: latestId(store.messages), done: false, timer: null };
+        const turn = { id: newTurnId(), baseline: latestId(store.messages), done: false, timer: null, userId: null };
         current = turn;
         store.messages = [...store.messages, { id: 'pending', role: 'user', pending: true }];
         // The clock starts before the upload: the server's budget covers the whole turn, not only the answer.
@@ -352,10 +404,10 @@ export function createDebateTurns({ store, recorder, player, upload, reload, tim
     // A signed audio link lasts an hour: a replay after that needs the fresh link from the server.
     async function freshMessage(message) {
         try {
-            const incoming = await reloadOnce();
-            store.messages = mergeMessages(store.messages, incoming);
+            const { messages } = await reloadOnce();
+            store.messages = mergeTranscript(store.messages, messages);
 
-            return incoming.find((item) => item.id === message.id) ?? null;
+            return messages.find((item) => item.id === message.id) ?? null;
         } catch {
             return null;
         }
