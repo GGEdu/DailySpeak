@@ -91,7 +91,8 @@ return [
 
     'max_page_bytes' => 3 * 1024 * 1024,
 
-    'allow_private_hosts' => (bool) env('NEWS_ALLOW_PRIVATE_HOSTS', false),
+    // Parsed as a boolean: (bool) would read "no" and "off" as true and turn the protection off.
+    'allow_private_hosts' => filter_var(env('NEWS_ALLOW_PRIVATE_HOSTS', false), FILTER_VALIDATE_BOOL),
 
     /*
     |--------------------------------------------------------------------------
