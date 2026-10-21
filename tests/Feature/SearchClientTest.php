@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\NewsArticle;
 use App\Providers\SearchServiceProvider;
 use GuzzleHttp\Client as HttpClient;
 use Laravel\Scout\EngineManager;
@@ -47,5 +48,14 @@ class SearchClientTest extends TestCase
             $this->app->make(MeilisearchClient::class),
             (new ReflectionProperty($engine, 'meilisearch'))->getValue($engine),
         );
+    }
+
+    public function test_news_search_ranks_by_date_before_relevance(): void
+    {
+        $settings = config('scout.meilisearch.index-settings.'.NewsArticle::class);
+
+        // The sort rule has to come first, or results would be ordered by relevance and not "newest first" as the README says.
+        $this->assertSame('sort', $settings['rankingRules'][0]);
+        $this->assertContains('published_at', $settings['sortableAttributes']);
     }
 }
