@@ -79,4 +79,20 @@ class NewsArticleTest extends TestCase
             'published_at' => strtotime('2026-10-07 03:00:00 UTC'),
         ], $article->toSearchableArray());
     }
+
+    public function test_the_fallback_search_can_use_the_trigram_indexes(): void
+    {
+        NewsArticle::factory(50)->create();
+
+        // Small test tables would be read in full anyway: forbid sequential scans to see whether the planner can use the indexes.
+        DB::transaction(function () {
+            DB::statement('SET LOCAL enable_seqscan = off');
+            $plan = collect(DB::select("EXPLAIN SELECT id FROM news_articles WHERE title ILIKE '%heat%' OR summary ILIKE '%heat%'"))
+                ->pluck('QUERY PLAN')
+                ->implode("\n");
+
+            $this->assertStringContainsString('news_articles_title_trgm', $plan);
+            $this->assertStringContainsString('news_articles_summary_trgm', $plan);
+        });
+    }
 }
