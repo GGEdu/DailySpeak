@@ -125,7 +125,9 @@ export function createDebateTurns({ store, recorder, player, upload, reload, tim
 
     function completeReply(turn, user, reply) {
         finish(turn);
-        store.messages = upsertMessage(user ? upsertMessage(withoutPending(store.messages), user) : withoutPending(store.messages), reply);
+
+        const transcript = withoutPending(store.messages);
+        store.messages = upsertMessage(user ? upsertMessage(transcript, user) : transcript, reply);
         playReply(reply);
     }
 
