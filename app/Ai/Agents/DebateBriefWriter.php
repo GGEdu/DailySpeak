@@ -3,6 +3,7 @@
 namespace App\Ai\Agents;
 
 use App\Enums\EnglishLevel;
+use App\Services\Ai\AiConnection;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Illuminate\Support\Str;
 use Laravel\Ai\Contracts\Agent;
@@ -21,7 +22,10 @@ class DebateBriefWriter implements Agent, HasStructuredOutput
     /**
      * @param  EnglishLevel  $level  The learner's level: the brief is written for it.
      */
-    public function __construct(public EnglishLevel $level) {}
+    public function __construct(
+        public EnglishLevel $level,
+        private AiConnection $connection,
+    ) {}
 
     /**
      * Get the instructions that the agent should follow.
@@ -82,23 +86,19 @@ class DebateBriefWriter implements Agent, HasStructuredOutput
     }
 
     /**
-     * Get the AI provider the agent should use (the news summariser's unless configured).
+     * Get the AI provider the agent should use: the platform's connection, built where it runs.
      */
     public function provider(): string
     {
-        return config('debate.guided.brief.provider') ?? config('news.ai.provider');
+        return $this->connection->providerName();
     }
 
     /**
-     * Get the model the agent should use (null uses the provider's default).
+     * Get the model the agent should use: the platform's connection's model.
      */
     public function model(): ?string
     {
-        if (config('debate.guided.brief.model') !== null) {
-            return config('debate.guided.brief.model');
-        }
-
-        return config('debate.guided.brief.provider') === null ? config('news.ai.model') : null;
+        return $this->connection->model;
     }
 
     /**

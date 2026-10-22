@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Services\Ai\PlatformAi;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 
@@ -21,8 +22,7 @@ class AiConnectionCheck
      */
     public function run(): array
     {
-        $url = config('ai.providers.'.AiSettings::TEXT_PROVIDER.'.url');
-        $key = config('ai.providers.'.AiSettings::TEXT_PROVIDER.'.key');
+        ['url' => $url, 'key' => $key] = app(PlatformAi::class)->textAddress();
 
         if (blank($url)) {
             return $this->result(false, 'No address is set for the AI service.');

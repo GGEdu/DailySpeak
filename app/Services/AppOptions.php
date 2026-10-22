@@ -18,7 +18,7 @@ class AppOptions
     private const CACHE_KEY = 'app-options';
 
     /**
-     * The saved value, or null when there is none or it was cleared. Secrets come back encrypted (see AiSettings).
+     * The saved value, or null when there is none or it was cleared. Secrets come back encrypted (see App\Services\Ai\PlatformAi).
      */
     public function get(string $key): ?string
     {

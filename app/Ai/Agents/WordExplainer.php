@@ -3,6 +3,7 @@
 namespace App\Ai\Agents;
 
 use App\Enums\EnglishLevel;
+use App\Services\Ai\AiConnection;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Laravel\Ai\Contracts\Agent;
 use Laravel\Ai\Contracts\HasStructuredOutput;
@@ -21,7 +22,10 @@ class WordExplainer implements Agent, HasStructuredOutput
      */
     public const SYNONYMS = 3;
 
-    public function __construct(private EnglishLevel $level) {}
+    public function __construct(
+        private EnglishLevel $level,
+        private AiConnection $connection,
+    ) {}
 
     /**
      * Get the instructions that the agent should follow.
@@ -50,19 +54,19 @@ class WordExplainer implements Agent, HasStructuredOutput
     }
 
     /**
-     * Get the AI provider the agent should use.
+     * Get the AI provider the agent should use: the asker's connection for conversation, built where it runs.
      */
     public function provider(): string
     {
-        return config('lookup.ai.provider');
+        return $this->connection->providerName();
     }
 
     /**
-     * Get the model the agent should use (null uses the provider's default).
+     * Get the model the agent should use: the one the asker picked for conversation.
      */
     public function model(): ?string
     {
-        return config('lookup.ai.model');
+        return $this->connection->model;
     }
 
     /**

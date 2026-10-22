@@ -4,8 +4,10 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\NewsSource;
+use App\Models\User;
+use App\Models\UserAiKey;
+use App\Services\Ai\PlatformAi;
 use App\Services\AiBudget;
-use App\Services\AiSettings;
 use App\Services\Limits;
 use App\Services\News\SourcePolicyResult;
 use App\Services\Privacy\Responsible;
@@ -19,13 +21,17 @@ use Inertia\Response;
  */
 class OverviewController extends Controller
 {
-    public function index(AiSettings $ai, AiBudget $budget, Limits $limits, Registration $registration, Responsible $responsible): Response
+    public function index(PlatformAi $ai, AiBudget $budget, Limits $limits, Registration $registration, Responsible $responsible): Response
     {
         return Inertia::render('admin/Index', [
             'cards' => [
                 'ai' => [
                     'configured' => $ai->configured(),
                     'host' => $ai->host(),
+                ],
+                'users' => [
+                    'total' => User::query()->count(),
+                    'with_key' => UserAiKey::query()->distinct()->count('user_id'),
                 ],
                 'budget' => [
                     'used' => $budget->usedToday(),

@@ -3,8 +3,8 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Services\Ai\PlatformAi;
 use App\Services\AiConnectionCheck;
-use App\Services\AiSettings;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -12,8 +12,9 @@ use Inertia\Inertia;
 use Inertia\Response;
 
 /**
- * The admin page for the AI connection, the models per task and the key (App\Services\AiSettings). A blank field
- * means the value in config/ or .env applies.
+ * The admin page for the platform's AI connection, the models per task and the key (App\Services\Ai\PlatformAi). A
+ * blank field means the value in config/ or .env applies. The values apply from the next call: nothing is written to
+ * config/.
  */
 class AiController extends Controller
 {
@@ -22,7 +23,7 @@ class AiController extends Controller
      */
     private const MODEL_PATTERN = '/^[A-Za-z0-9._\/:@-]+$/';
 
-    public function edit(AiSettings $ai): Response
+    public function edit(PlatformAi $ai): Response
     {
         return Inertia::render('admin/Ai', [
             'settings' => $ai->settings(),
@@ -32,14 +33,14 @@ class AiController extends Controller
     /**
      * Save the address and any of the models. A field that is not sent keeps its saved value.
      */
-    public function update(Request $request, AiSettings $ai): RedirectResponse
+    public function update(Request $request, PlatformAi $ai): RedirectResponse
     {
         $rules = [
             'base_url' => ['sometimes', 'nullable', 'string', 'max:255', 'url:http,https'],
             'models' => ['sometimes', 'nullable', 'array'],
         ];
 
-        foreach (array_keys(AiSettings::MODELS) as $field) {
+        foreach (array_keys(PlatformAi::FIELDS) as $field) {
             $rules["models.{$field}"] = ['sometimes', 'nullable', 'string', 'max:200', 'regex:'.self::MODEL_PATTERN];
         }
 
@@ -53,7 +54,7 @@ class AiController extends Controller
             $ai->setBaseUrl($validated['base_url'] ?? null, $request->user());
         }
 
-        foreach (array_keys(AiSettings::MODELS) as $field) {
+        foreach (array_keys(PlatformAi::FIELDS) as $field) {
             if ($request->has("models.{$field}")) {
                 $ai->setModel($field, $validated['models'][$field] ?? null, $request->user());
             }
@@ -65,7 +66,7 @@ class AiController extends Controller
     /**
      * Save the key, encrypted. It is never shown again: the page only shows its last four characters.
      */
-    public function saveKey(Request $request, AiSettings $ai): RedirectResponse
+    public function saveKey(Request $request, PlatformAi $ai): RedirectResponse
     {
         $validated = $request->validate([
             'api_key' => ['required', 'string', 'max:500'],
@@ -82,7 +83,7 @@ class AiController extends Controller
     /**
      * Go back to the key in .env.
      */
-    public function forgetKey(Request $request, AiSettings $ai): RedirectResponse
+    public function forgetKey(Request $request, PlatformAi $ai): RedirectResponse
     {
         $ai->forgetApiKey($request->user());
 
