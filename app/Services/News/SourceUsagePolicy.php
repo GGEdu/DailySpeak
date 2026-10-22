@@ -104,6 +104,19 @@ class SourceUsagePolicy
     }
 
     /**
+     * The publisher conditions that apply to a feed and its articles. Needs no download, so it can be shown at once.
+     *
+     * @param  Collection<int, FeedItem>  $items
+     * @return list<string>
+     */
+    public function publisherConditions(string $feedUrl, Collection $items): array
+    {
+        $hosts = array_map(fn (string $origin) => parse_url($origin, PHP_URL_HOST), array_keys($this->origins($feedUrl, $items)));
+
+        return $this->publisherNotes($hosts);
+    }
+
+    /**
      * The feed's origin, and the origins of the sampled articles, each with the paths to test.
      *
      * @param  Collection<int, FeedItem>  $items
@@ -172,7 +185,11 @@ class SourceUsagePolicy
             return "robots.txt on {$host} could not be read, so it was not checked.";
         }
 
-        return $robots->isRobotsFile() ? $robots : "robots.txt on {$host} is not a robots file, so it was not checked.";
+        if (! $robots->isRobotsFile()) {
+            return "robots.txt on {$host} is not a robots file, so it was not checked.";
+        }
+
+        return $robots->isComplete() ? $robots : "robots.txt on {$host} has more rules than can be checked, so it was not checked.";
     }
 
     /**

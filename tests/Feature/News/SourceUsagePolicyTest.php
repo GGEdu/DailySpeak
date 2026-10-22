@@ -147,6 +147,18 @@ class SourceUsagePolicyTest extends TestCase
         $this->assertSame(SourcePolicyResult::OK, $this->assess([])->status);
     }
 
+    public function test_a_robots_file_with_more_rules_than_can_be_checked_is_unknown(): void
+    {
+        Http::fake([
+            'feeds.example.test/robots.txt' => Http::response("User-agent: *\n".str_repeat("Disallow: /private\n", 2001)),
+        ]);
+
+        $result = $this->assess([]);
+
+        $this->assertSame(SourcePolicyResult::UNKNOWN, $result->status);
+        $this->assertSame('robots.txt on feeds.example.test has more rules than can be checked, so it was not checked.', $result->note);
+    }
+
     public function test_an_error_page_served_as_robots_txt_is_unknown(): void
     {
         Http::fake([
@@ -237,6 +249,18 @@ class SourceUsagePolicyTest extends TestCase
         $this->assertStringContainsString('GPTBot', $fresh->policy_note);
         // The timestamp column keeps whole seconds.
         $this->assertSame($result->checkedAt->toDateTimeString(), $fresh->policy_checked_at->toDateTimeString());
+    }
+
+    public function test_the_known_publisher_conditions_are_found_without_any_download(): void
+    {
+        $policy = app(SourceUsagePolicy::class);
+
+        $this->assertSame(
+            ['The BBC licenses its content for personal, non-commercial use only.'],
+            $policy->publisherConditions(self::FEED, collect([$this->article('https://www.bbc.co.uk/news/a')])),
+        );
+        $this->assertSame([], $policy->publisherConditions(self::FEED, collect([$this->article('https://news.example.test/a')])));
+        Http::assertNothingSent();
     }
 
     public function test_check_records_an_unreadable_feed_as_unknown(): void

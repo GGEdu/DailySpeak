@@ -4,11 +4,15 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreNewsSourceRequest;
+use App\Jobs\CheckNewsSourcePolicy;
 use App\Jobs\FetchNewsSource;
 use App\Models\NewsSource;
+use App\Services\News\SourcePolicyResult;
 use App\Services\News\SourceUsagePolicy;
+use Illuminate\Bus\UniqueLock;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -46,18 +50,23 @@ class NewsSourceController extends Controller
     }
 
     /**
-     * Save the source. Its usage terms are checked now, and a problem is a heads-up, never a refusal.
+     * Save the source and queue its usage-terms check. A problem is a heads-up, never a refusal.
+     *
+     * The robots.txt files are read by the queued check, so the result is not known yet here. The one heads-up
+     * shown now is a publisher condition, which needs no download; the robots.txt findings appear in the row.
      */
     public function store(StoreNewsSourceRequest $request, SourceUsagePolicy $policy): RedirectResponse
     {
         $source = NewsSource::create($request->validated());
-        $result = $policy->check($source, $request->feedItems());
+        $this->queueTermsCheck($source);
 
-        if (! $result->needsAttention()) {
-            return back()->with('status', "{$source->name} added. It will be read in the next daily run.");
+        $conditions = $policy->publisherConditions($source->feed_url, $request->feedItems());
+
+        if ($conditions === []) {
+            return back()->with('status', "{$source->name} added. It will be read in the next daily run; its usage terms are being checked.");
         }
 
-        return back()->with('status', "{$source->name} added. Heads-up: {$result->note}");
+        return back()->with('warning', "{$source->name} added. Heads-up: ".implode(' ', $conditions));
     }
 
     /**
@@ -65,12 +74,12 @@ class NewsSourceController extends Controller
      *
      * The re-check shares this route so the admin page needs no route of its own.
      */
-    public function update(Request $request, NewsSource $source, SourceUsagePolicy $policy): RedirectResponse
+    public function update(Request $request, NewsSource $source): RedirectResponse
     {
         if ($request->boolean('check_policy')) {
-            $result = $policy->check($source);
+            $this->queueTermsCheck($source);
 
-            return back()->with('status', "{$source->name} checked. {$result->note}");
+            return back()->with('status', "{$source->name} is being checked again. Its result appears in its row when the check ends.");
         }
 
         $source->update($request->validate([
@@ -92,11 +101,30 @@ class NewsSourceController extends Controller
     }
 
     /**
+     * Mark the source as being checked, so its row says so, and queue the check.
+     */
+    private function queueTermsCheck(NewsSource $source): void
+    {
+        $source->forceFill(['policy_status' => SourcePolicyResult::CHECKING])->save();
+
+        CheckNewsSourcePolicy::dispatch($source->id);
+    }
+
+    /**
      * Harvest a single source now, on its own queue (see FetchNewsSource for why it is not `news:fetch`).
      */
-    public function fetch(NewsSource $source): RedirectResponse
+    public function fetch(NewsSource $source, UniqueLock $unique): RedirectResponse
     {
-        FetchNewsSource::dispatch($source->id);
+        $job = new FetchNewsSource($source->id);
+
+        // The job is unique per source: a plain dispatch made while one is queued or running is dropped without a
+        // word. Taking the job's lock here says whether this click queued a fetch. The job is then sent to the
+        // queue directly, because the lock is already held for it.
+        if (! $unique->acquire($job)) {
+            return back()->with('status', "{$source->name} is already being fetched. Its new articles will appear in the feed as they are summarised.");
+        }
+
+        Bus::dispatch($job);
 
         return back()->with('status', "Fetching {$source->name}… new articles will appear in the feed as they are summarised.");
     }

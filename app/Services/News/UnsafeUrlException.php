@@ -14,6 +14,11 @@ final class UnsafeUrlException extends UnexpectedValueException
         return new self('Only http and https addresses can be read.');
     }
 
+    public static function unsupportedPort(): self
+    {
+        return new self('Only ports 80 and 443 can be read.');
+    }
+
     public static function nonPublicAddress(): self
     {
         return new self('This URL points to a private or reserved network address.');

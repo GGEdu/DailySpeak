@@ -112,6 +112,13 @@ class SafeHttpFetcher
             return null;
         }
 
+        // The address is checked for the standard web ports only; the server's public address answers on others too.
+        $port = $parts['port'] ?? ($parts['scheme'] === 'https' ? 443 : 80);
+
+        if (! in_array($port, [80, 443], true)) {
+            throw UnsafeUrlException::unsupportedPort();
+        }
+
         $host = trim($parts['host'], '[]');
         $isAddress = filter_var($host, FILTER_VALIDATE_IP) !== false;
         $addresses = $isAddress ? [$host] : $this->resolver->resolve($host);
@@ -163,6 +170,9 @@ class SafeHttpFetcher
                 'allow_redirects' => false,
                 // Guzzle would have curl decode gzip, br and zstd bodies, and the size limit does not count decoded bytes.
                 'decode_content' => false,
+                // An empty string, not null: Guzzle would otherwise take HTTP(S)_PROXY from the environment, and the
+                // connection would go to the proxy, which resolves the host itself.
+                'proxy' => '',
                 'curl' => $curl,
             ]);
 

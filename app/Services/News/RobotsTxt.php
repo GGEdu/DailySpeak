@@ -12,6 +12,15 @@ final class RobotsTxt
 {
     private const DIRECTIVES = ['user-agent', 'allow', 'disallow', 'sitemap', 'crawl-delay'];
 
+    /**
+     * Rules the file may hold in all. Groups that name the same crawler are merged, so a per-group limit
+     * alone would not bound the work done for one crawler.
+     */
+    private const MAX_RULES = 2000;
+
+    /** Wildcards a single pattern may have; more than this and the file is not complete. */
+    private const MAX_WILDCARDS = 16;
+
     /** @var list<array{agents: list<string>, rules: list<array{allow: bool, pattern: string}>}> */
     private array $groups = [];
 
@@ -21,6 +30,11 @@ final class RobotsTxt
     private bool $hasContent = false;
 
     private bool $hasDirectives = false;
+
+    private int $ruleCount = 0;
+
+    /** False when a rule was dropped for the limits above, so the file cannot be trusted to say everything. */
+    private bool $complete = true;
 
     private function __construct() {}
 
@@ -71,8 +85,7 @@ final class RobotsTxt
             $inAgentRun = false;
 
             if (in_array($name, ['allow', 'disallow'], true) && $robots->groups !== []) {
-                $last = array_key_last($robots->groups);
-                $robots->groups[$last]['rules'][] = ['allow' => $name === 'allow', 'pattern' => $value];
+                $robots->addRule($name === 'allow', $value);
             }
         }
 
@@ -93,6 +106,15 @@ final class RobotsTxt
     public function isRobotsFile(): bool
     {
         return ! $this->hasContent || $this->hasDirectives;
+    }
+
+    /**
+     * False when the file has more rules, or patterns with more wildcards, than this class checks. Such a file
+     * may hold a Disallow that is not evaluated, so its answers must not be taken as the whole picture.
+     */
+    public function isComplete(): bool
+    {
+        return $this->complete;
     }
 
     /**
@@ -156,15 +178,64 @@ final class RobotsTxt
         return array_merge([], ...array_column($named, 'rules'));
     }
 
+    private function addRule(bool $allow, string $pattern): void
+    {
+        if ($this->ruleCount >= self::MAX_RULES || substr_count($pattern, '*') > self::MAX_WILDCARDS) {
+            $this->complete = false;
+
+            return;
+        }
+
+        $this->ruleCount++;
+        $last = array_key_last($this->groups);
+        $this->groups[$last]['rules'][] = ['allow' => $allow, 'pattern' => $pattern];
+    }
+
     /**
      * A pattern matches from the start of the path; `*` matches any run of characters and a trailing `$` anchors the end.
+     *
+     * Matched without a regular expression: each literal part is looked for once, from the place the previous
+     * one ended, so the work is linear in the length of the path. A backtracking regex takes exponential time on
+     * patterns such as `/*a*a*a*c` and gives up, and a gave-up match counts as no match.
      */
     private static function matches(string $pattern, string $path): bool
     {
         $anchored = str_ends_with($pattern, '$');
-        $body = $anchored ? substr($pattern, 0, -1) : $pattern;
-        $regex = '/^'.str_replace('\*', '.*', preg_quote($body, '/')).($anchored ? '$' : '').'/';
+        $parts = explode('*', $anchored ? substr($pattern, 0, -1) : $pattern);
+        $prefix = array_shift($parts);
 
-        return preg_match($regex, $path) === 1;
+        if (! str_starts_with($path, $prefix)) {
+            return false;
+        }
+
+        if ($parts === []) {
+            return ! $anchored || $path === $prefix;
+        }
+
+        $position = strlen($prefix);
+        $end = strlen($path);
+
+        if ($anchored) {
+            $suffix = array_pop($parts);
+
+            // The suffix must be the end of the path and must not overlap the prefix.
+            if (! str_ends_with($path, $suffix) || $end - strlen($suffix) < $position) {
+                return false;
+            }
+
+            $end -= strlen($suffix);
+        }
+
+        foreach ($parts as $part) {
+            $found = strpos($path, $part, $position);
+
+            if ($found === false || $found + strlen($part) > $end) {
+                return false;
+            }
+
+            $position = $found + strlen($part);
+        }
+
+        return true;
     }
 }

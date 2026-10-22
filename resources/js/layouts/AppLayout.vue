@@ -9,6 +9,7 @@ import '../lib/navigation';
 const page = usePage();
 const user = computed(() => page.props.auth.user);
 const status = computed(() => page.props.flash?.status);
+const warning = computed(() => page.props.flash?.warning);
 const dueWords = computed(() => page.props.dueWords ?? 0);
 
 // Logging out forgets this visit's explanations: the next person on the device gets none of them.
@@ -61,6 +62,14 @@ onBeforeUnmount(stopLogoutListener);
                 class="mx-auto mb-8 max-w-3xl rounded-xl border border-emerald-400/20 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-200"
             >
                 {{ status }}
+            </p>
+            <!-- A heads-up is not a success: amber, and read out as a status update. -->
+            <p
+                v-if="warning"
+                role="status"
+                class="mx-auto mb-8 max-w-3xl rounded-xl border border-amber-300/40 bg-amber-400/10 px-4 py-3 text-sm text-amber-100"
+            >
+                {{ warning }}
             </p>
 
             <slot />
