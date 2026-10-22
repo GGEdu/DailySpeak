@@ -52,13 +52,17 @@ export function mergeMessages(messages, incoming) {
 }
 
 /**
- * The turn's messages in a fresh transcript: the user message written after `baseline` (its transcript is
- * in once the server has transcribed the recording) and, once it exists, the tutor's reply to it.
+ * The turn's messages in a fresh transcript: its user message, which the server marks with the voice turn it belongs
+ * to, and the tutor's reply to that message (`reply_to_id`). Ids say nothing about the turn: a reply to an earlier turn
+ * that arrives late has an id after this turn started, and it is still not this turn's.
  */
-export function findTurnMessages(messages, baseline) {
-    const fresh = messages.filter((message) => isServerId(message) && Number(message.id) > baseline);
-    const reply = fresh.findLast((message) => message.role === 'assistant') ?? null;
-    const user = fresh.findLast((message) => message.role === 'user' && (!reply || Number(message.id) < Number(reply.id))) ?? null;
+export function findTurnMessages(messages, turnId) {
+    if (turnId == null) {
+        return { user: null, reply: null };
+    }
+
+    const user = messages.find((message) => message.role === 'user' && message.turn === turnId) ?? null;
+    const reply = user ? (messages.find((message) => message.role === 'assistant' && message.reply_to_id === user.id) ?? null) : null;
 
     return { user, reply };
 }

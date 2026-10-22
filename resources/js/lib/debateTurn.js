@@ -248,7 +248,7 @@ export function createDebateTurns({ store, recorder, player, upload, reload, tim
      */
     function reconcile(incoming, upToDate) {
         const turn = pending();
-        const found = turn ? findTurnMessages(without(incoming), turn.baseline) : null;
+        const found = turn ? findTurnMessages(without(incoming), turn.id) : null;
         let kept = found?.user ? withoutPending(store.messages) : store.messages;
 
         if (turn && upToDate) {
