@@ -131,6 +131,48 @@ class AccountDeletionTest extends TestCase
         $this->withHeaders($this->inertiaHeaders())->get('/')->assertJson(['clearHistory' => true]);
     }
 
+    public function test_an_unverified_user_can_delete_the_account(): void
+    {
+        // Someone who signed up with a mistyped address must not be stuck with an account they cannot erase.
+        $user = User::factory()->unverified()->create();
+        $debate = Debate::factory()->for($user)->create();
+
+        $this->actingAs($user)
+            ->from('/email/verify')
+            ->delete('/settings/account', ['password' => 'password'])
+            ->assertRedirect('/');
+
+        $this->assertDatabaseMissing('users', ['id' => $user->id]);
+        $this->assertDatabaseMissing('debates', ['id' => $debate->id]);
+        $this->assertGuest();
+    }
+
+    public function test_an_unverified_user_still_has_to_give_the_password(): void
+    {
+        $user = User::factory()->unverified()->create();
+
+        $this->actingAs($user)
+            ->from('/email/verify')
+            ->delete('/settings/account', ['password' => 'not-the-password'])
+            ->assertSessionHasErrors('password')
+            ->assertRedirect('/email/verify');
+
+        $this->assertDatabaseHas('users', ['id' => $user->id]);
+    }
+
+    public function test_the_deletion_is_throttled_for_unverified_users_too(): void
+    {
+        $user = User::factory()->unverified()->create();
+
+        // The password check is a guess target: six tries a minute, then the door is shut.
+        for ($attempt = 0; $attempt < 6; $attempt++) {
+            $this->actingAs($user)->from('/email/verify')->delete('/settings/account', ['password' => 'wrong']);
+        }
+
+        $this->actingAs($user)->delete('/settings/account', ['password' => 'password'])->assertStatus(429);
+        $this->assertDatabaseHas('users', ['id' => $user->id]);
+    }
+
     public function test_guests_are_sent_to_login(): void
     {
         $this->delete('/settings/account', ['password' => 'password'])->assertRedirect('/login');

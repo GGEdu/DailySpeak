@@ -48,6 +48,15 @@ Route::middleware('auth')->group(function () {
     Route::post('/email/verification-notification', [EmailVerificationController::class, 'resend'])
         ->middleware('throttle:6,1')
         ->name('verification.send');
+
+    // A copy of the data and its erasure (GDPR art. 15-17, 20) do not wait for a confirmed address: someone who
+    // mistyped it must still be able to delete the account.
+    Route::get('/settings/export', [AccountController::class, 'export'])
+        ->middleware('throttle:6,1') // builds the whole history in one response
+        ->name('account.export');
+    Route::delete('/settings/account', [AccountController::class, 'destroy'])
+        ->middleware('throttle:6,1') // the password check is a guess target
+        ->name('account.destroy');
 });
 
 // Everything else needs a confirmed address: open sign-up must not mean open access to the AI budget.
@@ -79,12 +88,6 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     Route::get('/settings', [SettingsController::class, 'edit'])->name('settings.edit');
     Route::put('/settings', [SettingsController::class, 'update'])->name('settings.update');
-    Route::get('/settings/export', [AccountController::class, 'export'])
-        ->middleware('throttle:6,1') // builds the whole history in one response
-        ->name('account.export');
-    Route::delete('/settings/account', [AccountController::class, 'destroy'])
-        ->middleware('throttle:6,1') // the password check is a guess target
-        ->name('account.destroy');
 });
 
 Route::middleware(['auth', 'verified', 'can:admin'])->prefix('admin')->name('admin.')->group(function () {

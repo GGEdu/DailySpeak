@@ -68,6 +68,14 @@ class AccountExportTest extends TestCase
         $this->assertStringNotContainsString($token->plainTextToken, $json);
     }
 
+    public function test_an_unverified_user_can_download_their_data(): void
+    {
+        // The right to a copy does not wait for a confirmed address.
+        $user = User::factory()->unverified()->create();
+
+        $this->actingAs($user)->get('/settings/export')->assertOk();
+    }
+
     public function test_guests_are_sent_to_login(): void
     {
         $this->get('/settings/export')->assertRedirect('/login');
