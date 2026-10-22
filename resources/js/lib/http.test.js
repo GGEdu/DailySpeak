@@ -42,6 +42,20 @@ test('a request error keeps the server message and the HTTP status', () => {
     assert.equal(requestError({ status: 500 }, null).message, 'Request failed (HTTP 500).');
 });
 
+test('a request error keeps the code the server gives with its status, or null when there is none', () => {
+    const error = requestError({ status: 409 }, { message: 'Add your AI key in Settings → AI.', code: 'ai_not_configured' });
+
+    assert.equal(error.status, 409);
+    assert.equal(error.code, 'ai_not_configured');
+    assert.equal(requestError({ status: 500 }, { message: 'Oops.' }).code, null);
+});
+
+test('a failed post hands the code to the page, so it can point at the setting that fixes it', async () => {
+    answerWith(new Response(JSON.stringify({ message: 'The monthly limit is used up.', code: 'ai_cap_reached' }), { status: 429 }));
+
+    await assert.rejects(postJson('/api/lookups', {}), { status: 429, code: 'ai_cap_reached', message: 'The monthly limit is used up.' });
+});
+
 test('a URL on another host is sent as a path on the page origin', () => {
     assert.equal(
         sameOriginPath('https://apex.example/api/debates/3/audio?x=1', 'https://app.example/debates/3'),

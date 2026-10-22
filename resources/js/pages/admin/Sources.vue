@@ -1,8 +1,10 @@
 <script setup>
 import { Head, router, useForm, usePoll } from '@inertiajs/vue3';
 import { computed, onMounted, ref, watch } from 'vue';
+import SectionTabs from '../../components/SectionTabs.vue';
 import TextField from '../../components/TextField.vue';
 import AppLayout from '../../layouts/AppLayout.vue';
+import { PLATFORM_TABS } from '../../lib/tabs';
 import { timeAgo } from '../../lib/time';
 
 defineOptions({ layout: AppLayout });
@@ -69,10 +71,12 @@ const remove = (source) => {
 
     <div class="mx-auto max-w-3xl">
         <header>
-            <p class="text-sm font-medium text-ink-400">Admin</p>
+            <p class="text-sm font-medium text-ink-400">Platform</p>
             <h1 class="mt-2 text-3xl font-semibold tracking-tight text-ink-100">News sources</h1>
             <p class="mt-3 text-ink-400">RSS feeds read every day by the harvester. Check each publisher's terms before using its content commercially.</p>
         </header>
+
+        <SectionTabs class="mt-8" :tabs="PLATFORM_TABS" label="Platform sections" />
 
         <form class="mt-10 rounded-2xl border border-white/8 bg-ink-900/60 p-6" @submit.prevent="add">
             <h2 class="text-sm font-semibold text-ink-100">Add a source</h2>

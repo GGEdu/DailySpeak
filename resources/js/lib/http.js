@@ -86,11 +86,13 @@ async function send(url, init) {
 }
 
 /**
- * The server's message, with the HTTP status so callers can tell a rate limit from an expired session.
+ * The server's message, with the HTTP status so callers can tell a rate limit from an expired session, and the
+ * machine-readable `code` when the server gives one (e.g. "ai_not_configured", see lib/aiErrors.js).
  */
 export function requestError(response, body) {
     const error = new Error(body?.message ?? `Request failed (HTTP ${response.status}).`);
     error.status = response.status;
+    error.code = body?.code ?? null;
 
     return error;
 }

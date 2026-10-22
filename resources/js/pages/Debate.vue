@@ -2,6 +2,7 @@
 import { Head, Link, router } from '@inertiajs/vue3';
 import { useChannel, useConnectionStatus, useEcho } from '@laravel/echo-vue';
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, toRefs, watch, watchEffect } from 'vue';
+import AiLinks from '../components/AiLinks.vue';
 import BriefStatus from '../components/BriefStatus.vue';
 import ChatMessage from '../components/ChatMessage.vue';
 import DebateBrief from '../components/DebateBrief.vue';
@@ -500,6 +501,7 @@ onBeforeUnmount(() => {
                     :class="notice.tone === 'error' ? 'border border-listening/25 bg-listening/10 text-listening' : 'border border-white/10 bg-white/5 text-ink-300'"
                 >
                     {{ notice.text }}
+                    <AiLinks :links="notice.links ?? []" class="mt-2 justify-center" />
                 </p>
             </footer>
 
@@ -538,6 +540,7 @@ onBeforeUnmount(() => {
                     :class="notice.tone === 'error' ? 'border border-listening/25 bg-listening/10 text-listening' : 'border border-white/10 bg-white/5 text-ink-300'"
                 >
                     {{ notice.text }}
+                    <AiLinks :links="notice.links ?? []" class="mt-2 justify-center" />
                 </p>
             </footer>
         </section>
