@@ -120,6 +120,12 @@ class ProcessVoiceDebate implements ShouldQueue
             return;
         }
 
+        // A guided debate reviews the learner's words in writing. The review is queued now and runs beside the
+        // answer: it never speaks and never delays the voice.
+        if ($this->debate->isGuided() && $turn->corrections === null) {
+            rescue(fn () => ReviewLearnerTurn::dispatch($turn));
+        }
+
         // A reply that is already stored answers this turn: an earlier attempt got that far and then stopped
         // (a timeout, a lost connection). Send it again instead of paying for a second answer.
         if ($answer = $this->answer($turn)) {
