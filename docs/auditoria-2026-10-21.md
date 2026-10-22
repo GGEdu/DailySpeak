@@ -24,6 +24,24 @@ Las baterías pasan enteras (273 PHP y 12 JS), pero **12 de las 16 mutaciones so
 
 > Ningún cambio de código en esta auditoría. Los arreglos se agrupan al final en lotes; cada hallazgo lleva un identificador para poder citarlo en el PR que lo cierre.
 
+## Estado al cierre (2026-10-22)
+
+Todo lo de esta auditoría está en `main` y desplegado: 10 lotes en paralelo, una revisión de seguridad y otra de
+cohesión sobre el conjunto, sus 12 hallazgos (2 HIGH, 10 MEDIUM) y los menores. **553 tests PHP y 95 JS**, CI en
+GitHub (PHP 8.4 y 8.5, frontend), y el despliegue solo acepta commits con el CI en verde.
+
+| Bloque | Estado |
+|---|---|
+| HIGH V-1 a V-3, N-1 a N-4, D-1, D-2, O-1, T-1, S-1 | ✅ (N-4: aviso en el panel de administración; qué fuentes conservar sigue siendo decisión del dueño) |
+| MEDIUM de voz, seguridad, recolector, rendimiento y accesibilidad | ✅ |
+| Hallazgos de las dos revisiones finales (CSP de Horizon, tope de IA, login, descompresión, delimitador de prompts, reintento idempotente, Echo, turno fallido, retención en blanco, migración, presupuesto del turno) | ✅ |
+| LOW | ✅ casi todos; abiertos: validación del feed en el alta con reintentos (~61 s en el peor caso), `exists()` que no distingue un fichero ausente de uno sin permiso en el purgado |
+| Encontrado al desplegar | ✅ una redirección con reintentos rompía la descarga (TypeError) |
+
+Decisiones que siguen abiertas: topes (IA 1.000/día, 10 registros por IP), retención de transcripciones, CAPTCHA y
+correos desechables, fuentes con licencia que prohíbe el uso con IA (20 de 22 dan aviso), protección de rama en
+GitHub, y las de siempre (crédito de Gemini, `.env.example`, APIs nuevas, streaming, consentimiento RGPD).
+
 ## Comprobado en producción
 
 Valores leídos de la configuración en ejecución (nunca del `.env`). Cierran o mitigan varios hallazgos que en el código son solo valores por defecto inseguros:
