@@ -17,14 +17,17 @@ class RouteAccessTest extends TestCase
     private const GUEST_URIS = ['', 'login', 'register', 'forgot-password', 'reset-password', 'reset-password/{token}'];
 
     /**
-     * Signed in, but deliberately not verified: an unverified user must still be able to log out and to
-     * verify the address. These must keep "auth".
+     * Signed in, but deliberately not verified: an unverified user must still be able to log out, to verify
+     * the address, and to get a copy of their data or erase the account (GDPR), since an address typed wrong at
+     * sign-up must not trap the account. These must keep "auth".
      */
     private const UNVERIFIED_URIS = [
         'logout',
         'email/verify',
         'email/verify/{id}/{hash}',
         'email/verification-notification',
+        'settings/export',
+        'settings/account',
     ];
 
     /**

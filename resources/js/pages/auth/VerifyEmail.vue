@@ -1,6 +1,7 @@
 <script setup>
 import { Head, Link, useForm, usePage } from '@inertiajs/vue3';
 import { computed } from 'vue';
+import DeleteAccountForm from '../../components/DeleteAccountForm.vue';
 import GuestLayout from '../../layouts/GuestLayout.vue';
 
 defineProps({
@@ -30,10 +31,17 @@ const resend = () => form.post('/email/verification-notification');
         </button>
         <p class="mt-4 text-sm text-ink-400">Not there? Check your spam folder. The link expires in 60 minutes.</p>
 
+        <details class="mt-6 border-t border-white/8 pt-5">
+            <summary class="cursor-pointer text-sm font-medium text-ink-300 hover:text-ink-100">Wrong address? Delete this account</summary>
+            <p class="mt-3 text-sm text-ink-400">
+                This erases the account. You can then sign up again with the right address. It cannot be undone.
+            </p>
+            <DeleteAccountForm />
+        </details>
+
         <template #footer>
-            Wrong address?
             <Link href="/logout" method="post" as="button" class="font-medium text-ink-200 underline-offset-4 hover:underline">Log out</Link>
-            and sign up again.
+            or delete this account if the address was wrong.
         </template>
     </GuestLayout>
 </template>

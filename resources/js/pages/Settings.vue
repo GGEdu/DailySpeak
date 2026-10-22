@@ -1,7 +1,7 @@
 <script setup>
 import { Head, useForm, usePage } from '@inertiajs/vue3';
 import AppLayout from '../layouts/AppLayout.vue';
-import TextField from '../components/TextField.vue';
+import DeleteAccountForm from '../components/DeleteAccountForm.vue';
 
 defineOptions({ layout: AppLayout });
 
@@ -14,12 +14,6 @@ const form = useForm({
 });
 
 const submit = () => form.put('/settings', { preserveScroll: true });
-
-// The password is the confirmation: erasing the account cannot be undone.
-const deletion = useForm({ password: '' });
-
-const deleteAccount = () =>
-    deletion.delete('/settings/account', { onFinish: () => deletion.reset('password') });
 </script>
 
 <template>
@@ -83,25 +77,7 @@ const deleteAccount = () =>
                 recordings. It cannot be undone. News articles are not affected.
             </p>
 
-            <form class="mt-5 max-w-sm" @submit.prevent="deleteAccount">
-                <TextField
-                    v-model="deletion.password"
-                    label="Password"
-                    type="password"
-                    autocomplete="current-password"
-                    required
-                    :error="deletion.errors.password"
-                />
-                <div class="mt-5">
-                    <button
-                        type="submit"
-                        :disabled="deletion.processing"
-                        class="rounded-xl border border-listening/50 px-5 py-2.5 text-sm font-semibold text-listening transition hover:bg-listening/10 disabled:opacity-50"
-                    >
-                        Delete my account
-                    </button>
-                </div>
-            </form>
+            <DeleteAccountForm />
         </section>
     </div>
 </template>

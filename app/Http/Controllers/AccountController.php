@@ -8,6 +8,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Inertia\Inertia;
 
 class AccountController extends Controller
 {
@@ -39,6 +40,9 @@ class AccountController extends Controller
 
         $request->session()->invalidate();
         $request->session()->regenerateToken();
+
+        // As on logout: the next page forgets the key of the encrypted history, so "Back" cannot show the deleted account.
+        Inertia::clearHistory();
 
         return to_route('home')->with('status', 'Your account and its data have been deleted.');
     }
