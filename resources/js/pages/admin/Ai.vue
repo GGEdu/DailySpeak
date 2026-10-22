@@ -23,8 +23,6 @@ const MODEL_LINES = [
     { key: 'stt', label: 'Speech-to-text' },
     { key: 'tts', label: 'Text-to-speech' },
     { key: 'tts_voice', label: 'Voice' },
-    { key: 'tts_fallback_model', label: 'Fallback text-to-speech model' },
-    { key: 'tts_fallback_voice', label: 'Fallback voice' },
 ];
 
 const modelDefault = (key) => props.settings.models?.[key]?.default ?? '';

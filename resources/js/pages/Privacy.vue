@@ -83,9 +83,15 @@ const signedIn = computed(() => Boolean(usePage().props.auth?.user));
             <section class="mt-10" aria-labelledby="who-heading">
                 <h2 id="who-heading" class="text-lg font-semibold text-ink-100">Who receives it</h2>
                 <p class="mt-3 leading-relaxed text-ink-300">
-                    For the tutor to work, your voice and your texts are sent to AI service providers, through a gateway we run:
-                    speech-to-text turns your voice into text, a language model writes the tutor's replies and your fluency report,
-                    and text-to-speech speaks the replies. Your address also receives the verification and password-reset emails we send.
+                    For the tutor to work, your voice and your texts are sent to AI service providers: speech-to-text turns your voice
+                    into text, a language model writes the tutor's replies and your fluency report, and text-to-speech speaks the
+                    replies. Your address also receives the verification and password-reset emails we send.
+                </p>
+                <p class="mt-3 leading-relaxed text-ink-300">
+                    You can use your own AI key (Settings → AI). It is stored encrypted, is never shown again and is deleted with your
+                    account. While you use it, your voice and texts go to the provider you chose, under that provider's terms. Without
+                    your own key, they go through the platform's connection, if the administrator allows it. The news summaries and
+                    debate briefs that everyone shares are written with the platform's connection.
                 </p>
             </section>
 
