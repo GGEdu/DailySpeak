@@ -38,6 +38,42 @@ export function withoutPending(messages) {
 }
 
 /**
+ * The corrections of a learner message, merged with a fresh copy. A copy that has none yet (null: the review is still
+ * running) keeps what is shown. A dismissal is never undone by a copy: once the learner said "I didn't say that", the
+ * correction stays hidden, even if the copy was fetched before the dismissal reached the server.
+ */
+export function mergeCorrections(local, incoming) {
+    if (incoming == null) {
+        return local ?? null;
+    }
+
+    if (local == null) {
+        return incoming;
+    }
+
+    const dismissed = new Set(local.filter((correction) => correction.dismissed).map((correction) => correction.index));
+
+    return incoming.map((correction) => (dismissed.has(correction.index) ? { ...correction, dismissed: true } : correction));
+}
+
+/**
+ * One message merged with a fresh copy of it: the server's fields win, except the corrections, which keep the rules above.
+ */
+export function mergeMessage(local, incoming) {
+    if (!local) {
+        return { ...incoming };
+    }
+
+    const merged = { ...local, ...incoming };
+
+    if ('corrections' in local || 'corrections' in incoming) {
+        merged.corrections = mergeCorrections(local.corrections, incoming.corrections);
+    }
+
+    return merged;
+}
+
+/**
  * Merge a fresh copy of the transcript: unknown messages are added, known ones take the server's fields
  * (a replay link renewed by the server, for instance), and the result is in server order.
  */
@@ -45,10 +81,32 @@ export function mergeMessages(messages, incoming) {
     const byId = new Map(messages.map((message) => [message.id, message]));
 
     for (const message of incoming) {
-        byId.set(message.id, { ...byId.get(message.id), ...message });
+        byId.set(message.id, mergeMessage(byId.get(message.id), message));
     }
 
     return [...byId.values()].sort((a, b) => rank(a) - rank(b));
+}
+
+/**
+ * The transcript with one correction of a message marked as dismissed (or back). Other messages are kept as they are.
+ */
+export function setCorrectionDismissed(messages, messageId, index, dismissed) {
+    if (!messages.some((message) => message.id === messageId && message.corrections?.some((item) => item.index === index))) {
+        return messages;
+    }
+
+    return messages.map((message) =>
+        message.id === messageId
+            ? { ...message, corrections: message.corrections.map((item) => (item.index === index ? { ...item, dismissed } : item)) }
+            : message,
+    );
+}
+
+/**
+ * The corrections to show under a message: the ones the learner has not dismissed.
+ */
+export function visibleCorrections(message) {
+    return (message.corrections ?? []).filter((correction) => !correction.dismissed);
 }
 
 /**

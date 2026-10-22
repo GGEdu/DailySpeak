@@ -1,14 +1,16 @@
 <script setup>
+import TurnCorrections from './TurnCorrections.vue';
+
 defineProps({
     message: { type: Object, required: true },
     playing: { type: Boolean, default: false },
 });
 
-defineEmits(['play']);
+defineEmits(['play', 'dismiss']);
 </script>
 
 <template>
-    <div class="flex" :class="message.role === 'user' ? 'justify-end' : 'justify-start'">
+    <div class="flex flex-col" :class="message.role === 'user' ? 'items-end' : 'items-start'">
         <div
             class="group relative max-w-[85%] rounded-2xl px-4 py-3 text-[15px] leading-relaxed"
             :class="message.role === 'user' ? 'rounded-br-md bg-ink-700/70 text-ink-100' : 'rounded-bl-md border border-speaking/15 bg-speaking/[0.06] text-ink-100'"
@@ -39,5 +41,12 @@ defineEmits(['play']);
                 {{ playing ? 'Stop' : 'Replay' }}
             </button>
         </div>
+
+        <TurnCorrections
+            v-if="message.role === 'user' && message.corrections?.length"
+            :corrections="message.corrections"
+            class="mt-1.5 max-w-[85%]"
+            @dismiss="$emit('dismiss', $event)"
+        />
     </div>
 </template>
