@@ -16,6 +16,11 @@ use Inertia\Response;
 class FeedController extends Controller
 {
     /**
+     * How many more stories a search looks through than it shows, so hidden sources can be left out of it.
+     */
+    private const SEARCH_WINDOW = 3;
+
+    /**
      * Number of most recent articles shown in the feed.
      */
     private const ARTICLES = 20;
@@ -31,13 +36,15 @@ class FeedController extends Controller
     public function __invoke(Request $request, Limits $limits): Response
     {
         $search = $this->searchTerm($request);
-        $categories = $this->categoriesWithArticles();
+        // The sources this user hid are left out of the feed and of the search: they stay in the catalogue for everyone else.
+        $hidden = $request->user()->hiddenSources()->pluck('news_source_id')->all();
+        $categories = $this->categoriesWithArticles($hidden);
         // A search covers every category, so the category filter only applies to the latest news.
         $category = $search === '' ? $this->requestedCategory($request, $categories) : null;
 
         $articles = $search === ''
-            ? $this->latest($category)
-            : $this->search($request, $search, $limits);
+            ? $this->latest($category, $hidden)
+            : $this->search($request, $search, $limits, $hidden);
         $articles->loadMissing('newsSource');
 
         $debates = $request->user()->debates()
@@ -72,7 +79,7 @@ class FeedController extends Controller
      *
      * @return Collection<int, NewsArticle>
      */
-    private function latest(?string $category): Collection
+    private function latest(?string $category, array $hidden): Collection
     {
         return NewsArticle::query()
             ->when($category, fn ($query) => $query->whereIn(
@@ -80,6 +87,7 @@ class FeedController extends Controller
                 // The ids of the category's sources: cheaper than checking every article's source.
                 NewsSource::query()->where('category', $category)->pluck('id'),
             ))
+            ->when($hidden !== [], fn ($query) => $query->whereNotIn('news_source_id', $hidden))
             ->latest('published_at')
             ->latest('id')
             ->limit(self::ARTICLES)
@@ -91,11 +99,12 @@ class FeedController extends Controller
      *
      * @return list<array{key: string, label: string}>
      */
-    private function categoriesWithArticles(): array
+    private function categoriesWithArticles(array $hidden): array
     {
         $filed = NewsSource::query()
             ->select('category')
             ->whereNotNull('category')
+            ->whereNotIn('id', $hidden)
             ->whereHas('articles')
             ->distinct()
             ->pluck('category');
@@ -126,7 +135,7 @@ class FeedController extends Controller
      *
      * @return Collection<int, NewsArticle>
      */
-    private function search(Request $request, string $search, Limits $limits): Collection
+    private function search(Request $request, string $search, Limits $limits, array $hidden): Collection
     {
         // Each search can reach the engine and the database, so one user cannot run them without limit.
         if (! RateLimiter::attempt('feed-search:'.$request->user()->id, $limits->value('feed_searches_per_minute'), fn () => true)) {
@@ -136,12 +145,13 @@ class FeedController extends Controller
         // The search as a LIKE pattern: its own % and _ are escaped, so "100%" finds "100%" and not every story.
         $pattern = '%'.addcslashes($search, '%_\\').'%';
 
-        return rescue(
+        // A wider window than the page: the hidden sources are taken out of it afterwards, whichever engine answered.
+        $found = rescue(
             fn () => NewsArticle::search($search)
                 // Every word must match (allowing typos), not just the first ones.
                 ->options(['matchingStrategy' => 'all'])
                 ->orderBy('published_at', 'desc')
-                ->take(self::ARTICLES)
+                ->take(self::ARTICLES * self::SEARCH_WINDOW)
                 ->get(),
             // The feed keeps working, with a plain text search, if the search engine is down.
             fn () => NewsArticle::query()
@@ -150,8 +160,13 @@ class FeedController extends Controller
                     ->orWhereLike('summary', $pattern))
                 ->latest('published_at')
                 ->latest('id')
-                ->limit(self::ARTICLES)
+                ->limit(self::ARTICLES * self::SEARCH_WINDOW)
                 ->get(),
         );
+
+        return $found
+            ->reject(fn (NewsArticle $article) => in_array($article->news_source_id, $hidden, true))
+            ->take(self::ARTICLES)
+            ->values();
     }
 }
