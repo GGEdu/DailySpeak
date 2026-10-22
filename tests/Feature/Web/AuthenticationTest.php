@@ -193,7 +193,8 @@ class AuthenticationTest extends TestCase
     {
         return [
             'X-Inertia' => 'true',
-            'X-Inertia-Version' => app(HandleInertiaRequests::class)->version(Request::create('/')),
+            // As a string: without a built manifest the version is null, and Inertia compares it as ''.
+            'X-Inertia-Version' => (string) app(HandleInertiaRequests::class)->version(Request::create('/')),
         ];
     }
 
