@@ -83,6 +83,16 @@ class AiConnectionsTest extends TestCase
         $this->assertSame('platform', $connection->paidBy);
     }
 
+    public function test_a_task_never_picked_uses_the_platform_for_whoever_may_use_it(): void
+    {
+        // The owner, and anybody the owner allowed, keeps working with the platform until they pick their own provider.
+        $admin = User::factory()->admin()->withoutAi()->create();
+        $allowed = User::factory()->withoutAi()->create(['platform_ai' => true]);
+
+        $this->assertSame('platform', $this->connections()->forUser($admin, 'tts')->paidBy);
+        $this->assertSame('platform', $this->connections()->forUser($allowed, 'conversation')->paidBy);
+    }
+
     public function test_an_admin_may_use_the_platform_without_a_key(): void
     {
         $admin = User::factory()->admin()->withoutAi()->create();

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Settings;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Models\UserAiKey;
+use App\Services\Ai\AiConnections;
 use App\Services\Ai\AiKeyCheck;
 use App\Services\Ai\ProviderCatalog;
 use Illuminate\Http\JsonResponse;
@@ -49,7 +50,7 @@ class AiSettingsController extends Controller
                 ->values()
                 ->all(),
             'tasks' => collect(array_keys(ProviderCatalog::TASK_CAPABILITY))
-                ->mapWithKeys(fn (string $task) => [$task => $this->taskState($tasks->get($task), $task)])
+                ->mapWithKeys(fn (string $task) => [$task => $this->taskState($tasks->get($task), $task, $user->mayUsePlatformAi())])
                 ->all(),
             'platform' => ['allowed' => $user->mayUsePlatformAi()],
             'suggestions' => collect(ProviderCatalog::ids())
@@ -189,10 +190,11 @@ class AiSettingsController extends Controller
      *
      * @return array{provider: ?string, model: ?string, voice?: ?string}
      */
-    private function taskState(mixed $picked, string $task): array
+    private function taskState(mixed $picked, string $task, bool $platformAllowed): array
     {
         $state = [
-            'provider' => $picked?->provider,
+            // A task never picked runs on the platform for whoever may use it (AiConnections): show it that way.
+            'provider' => $picked?->provider ?? ($platformAllowed ? AiConnections::PLATFORM : null),
             'model' => $picked?->model,
         ];
 

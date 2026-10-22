@@ -32,8 +32,10 @@ class AiConnections
     {
         $picked = $user->aiTasks()->where('task', $task)->first();
 
+        // Nothing picked yet: whoever may use the platform (the owner, and those the owner allowed) keeps using it
+        // until they pick their own provider. Anybody else has not configured the task.
         if ($picked === null) {
-            throw new AiNotConfigured;
+            return $this->platformFor($user, $task);
         }
 
         if ($picked->provider === self::PLATFORM) {
