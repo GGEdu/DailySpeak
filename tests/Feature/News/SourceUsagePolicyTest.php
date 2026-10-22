@@ -147,6 +147,18 @@ class SourceUsagePolicyTest extends TestCase
         $this->assertSame(SourcePolicyResult::OK, $this->assess([])->status);
     }
 
+    public function test_a_robots_file_with_more_rules_than_can_be_checked_is_unknown(): void
+    {
+        Http::fake([
+            'feeds.example.test/robots.txt' => Http::response("User-agent: *\n".str_repeat("Disallow: /private\n", 2001)),
+        ]);
+
+        $result = $this->assess([]);
+
+        $this->assertSame(SourcePolicyResult::UNKNOWN, $result->status);
+        $this->assertSame('robots.txt on feeds.example.test has more rules than can be checked, so it was not checked.', $result->note);
+    }
+
     public function test_an_error_page_served_as_robots_txt_is_unknown(): void
     {
         Http::fake([

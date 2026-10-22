@@ -172,7 +172,11 @@ class SourceUsagePolicy
             return "robots.txt on {$host} could not be read, so it was not checked.";
         }
 
-        return $robots->isRobotsFile() ? $robots : "robots.txt on {$host} is not a robots file, so it was not checked.";
+        if (! $robots->isRobotsFile()) {
+            return "robots.txt on {$host} is not a robots file, so it was not checked.";
+        }
+
+        return $robots->isComplete() ? $robots : "robots.txt on {$host} has more rules than can be checked, so it was not checked.";
     }
 
     /**

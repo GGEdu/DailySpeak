@@ -81,4 +81,62 @@ class RobotsTxtTest extends TestCase
         $this->assertTrue($robots->allows('GPTBot', '/'));
         $this->assertTrue($robots->allows('ClaudeBot', '/'));
     }
+
+    public function test_wildcard_and_end_anchor_patterns_match_exactly_as_before(): void
+    {
+        $cases = [
+            ['/a*', '/abc', true],
+            ['/a*', '/', false],
+            ['/a*b', '/axxbc', true],
+            ['/a*b$', '/axxbc', false],
+            ['/a*b$', '/axxb', true],
+            ['/*.pdf$', '/files/report.pdf', true],
+            ['/*.pdf$', '/files/report.pdf?x=1', false],
+            ['/a$', '/a', true],
+            ['/a$', '/ab', false],
+            ['/a*a$', '/a', false],
+            ['/a*a$', '/aa', true],
+            ['/ab*ba$', '/aba', false],
+            ['/a*b*c$', '/abc', true],
+            ['/a*b*c$', '/acb', false],
+            ['/a.b', '/axb', false],
+            ['/A', '/a', false],
+            ['/a$b', '/a$b', true],
+            ['*', '/anything', true],
+        ];
+
+        foreach ($cases as [$pattern, $path, $matches]) {
+            $robots = RobotsTxt::parse("User-agent: *\nDisallow: {$pattern}\n");
+
+            $this->assertSame(! $matches, $robots->allows('GPTBot', $path), "Disallow: {$pattern} against {$path}");
+        }
+    }
+
+    public function test_a_pathological_wildcard_pattern_is_decided_quickly(): void
+    {
+        // The path has a c, so the regular expression runs, and it cannot find fifteen a's before it: it tries
+        // every way of splitting the a's among the stars until its backtrack limit gives up (about 3 ms a rule).
+        $pattern = '/'.str_repeat('*a', 15).'*c';
+        $robots = RobotsTxt::parse("User-agent: *\n".str_repeat("Disallow: {$pattern}\n", 1000));
+
+        $started = hrtime(true);
+        $allowed = $robots->allows('GPTBot', '/c'.str_repeat('a', 60));
+        $seconds = (hrtime(true) - $started) / 1e9;
+
+        $this->assertTrue($allowed);
+        $this->assertLessThan(1.0, $seconds);
+        $this->assertFalse($robots->allows('GPTBot', '/'.str_repeat('a', 15).'c'));
+    }
+
+    public function test_a_file_with_more_rules_than_it_can_check_is_not_complete(): void
+    {
+        $this->assertTrue(RobotsTxt::parse("User-agent: *\n".str_repeat("Disallow: /private\n", 2000))->isComplete());
+        $this->assertFalse(RobotsTxt::parse("User-agent: *\n".str_repeat("Disallow: /private\n", 2001))->isComplete());
+    }
+
+    public function test_a_pattern_with_too_many_wildcards_is_not_complete(): void
+    {
+        $this->assertTrue(RobotsTxt::parse("User-agent: *\nDisallow: /".str_repeat('*a', 16)."\n")->isComplete());
+        $this->assertFalse(RobotsTxt::parse("User-agent: *\nDisallow: /".str_repeat('*a', 17)."\n")->isComplete());
+    }
 }
