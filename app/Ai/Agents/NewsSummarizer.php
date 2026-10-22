@@ -2,6 +2,7 @@
 
 namespace App\Ai\Agents;
 
+use App\Services\Ai\AiConnection;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Laravel\Ai\Contracts\Agent;
 use Laravel\Ai\Contracts\HasStructuredOutput;
@@ -19,6 +20,11 @@ class NewsSummarizer implements Agent, HasStructuredOutput
      * Number of vocabulary terms requested per article.
      */
     public const VOCABULARY_SIZE = 5;
+
+    /**
+     * @param  AiConnection  $connection  The platform's connection for writing (see App\Services\Ai\PlatformAi).
+     */
+    public function __construct(private AiConnection $connection) {}
 
     /**
      * Get the instructions that the agent should follow.
@@ -50,19 +56,19 @@ class NewsSummarizer implements Agent, HasStructuredOutput
     }
 
     /**
-     * Get the AI provider the agent should use.
+     * Get the AI provider the agent should use: the platform's connection, built where it runs.
      */
     public function provider(): string
     {
-        return config('news.ai.provider');
+        return $this->connection->providerName();
     }
 
     /**
-     * Get the model the agent should use (null uses the provider's default).
+     * Get the model the agent should use: the platform's connection's model.
      */
     public function model(): ?string
     {
-        return config('news.ai.model');
+        return $this->connection->model;
     }
 
     /**

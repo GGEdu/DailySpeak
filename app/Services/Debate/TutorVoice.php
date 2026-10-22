@@ -3,50 +3,39 @@
 namespace App\Services\Debate;
 
 use App\Models\Debate;
-use Illuminate\Support\Facades\Log;
+use App\Services\Ai\AiCalls;
+use App\Services\Ai\AiConnection;
 use Illuminate\Support\Str;
 use Laravel\Ai\Audio;
-use Laravel\Ai\Responses\AudioResponse;
 use RuntimeException;
-use Throwable;
 
 /**
- * Speaks the tutor's words: the main voice, then the backup voice when the main one fails (config/debate.php, tts).
- * Used by every tutor message that is spoken: the answer to a voice turn and the opening of a guided debate.
+ * Speaks the tutor's words with the debate owner's own voice connection (tts). Used by every tutor message that is
+ * spoken: the answer to a voice turn and the opening of a guided debate. There is no second voice to fall back on: a
+ * failed synthesis is the caller's to report, and the text is still shown.
  */
 class TutorVoice
 {
+    public function __construct(private AiCalls $calls) {}
+
     /**
      * Synthesise the text to an MP3 file in the debate's replies folder.
      *
-     * @param  array<string, mixed>  $logContext  Fields for the log lines about this synthesis (such as the turn).
-     * @return array{0: string, 1: bool} The storage path, and whether the backup voice made it.
+     * @return string The storage path.
      *
-     * @throws Throwable when no voice could speak the text (the main one failed and there is no backup voice, or the backup failed too)
+     * @throws \Throwable when the owner has no voice connection, or the provider fails to speak the text
      */
-    public function synthesise(Debate $debate, string $text, array $logContext = []): array
+    public function synthesise(Debate $debate, string $text): string
     {
-        $backupVoice = false;
-
-        try {
-            $audio = $this->speak($text, config('debate.tts'));
-        } catch (Throwable $e) {
-            if (config('debate.tts.fallback.model') === null) {
-                throw $e;
-            }
-
-            // The user still hears the reply, in the backup voice; the failure stays in the log.
-            Log::warning('Main voice failed; answering with the backup voice.', [
-                'debate_id' => $debate->getKey(),
-                ...$logContext,
-                'tts' => config('debate.tts.provider'),
-                'exception' => $e::class,
-            ]);
-            report($e);
-
-            $audio = $this->speak($text, config('debate.tts.fallback'));
-            $backupVoice = true;
-        }
+        $audio = $this->calls->forUser(
+            $debate->user,
+            'tts',
+            fn (AiConnection $connection) => Audio::of($text)
+                ->voice((string) $connection->voice)
+                ->timeout(config('debate.tts.timeout'))
+                ->generate($connection->providerName(), $connection->model),
+            fn () => AiCalls::characters($text),
+        );
 
         $path = $audio->storeAs("debates/{$debate->id}/replies", Str::uuid().'.mp3', config('debate.audio.disk'));
 
@@ -54,17 +43,6 @@ class TutorVoice
             throw new RuntimeException('The synthesised reply could not be stored.');
         }
 
-        return [$path, $backupVoice];
-    }
-
-    /**
-     * @param  array{provider: string, model: ?string, voice: string, timeout: int}  $tts
-     */
-    private function speak(string $text, array $tts): AudioResponse
-    {
-        return Audio::of($text)
-            ->voice($tts['voice'])
-            ->timeout($tts['timeout'])
-            ->generate($tts['provider'], $tts['model']);
+        return $path;
     }
 }

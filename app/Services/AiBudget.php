@@ -54,6 +54,19 @@ class AiBudget
     }
 
     /**
+     * Whether the budget is used up for this user, without taking anything: a check made before queuing work. Admins
+     * are exempt, as in spend().
+     */
+    public function exhausted(?User $user = null): bool
+    {
+        if ($user?->is_admin) {
+            return false;
+        }
+
+        return $this->usedToday() >= max(1, $this->limits->value('ai_daily_global'));
+    }
+
+    /**
      * When today's count starts again.
      */
     public function resetsAt(): Carbon

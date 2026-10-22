@@ -34,7 +34,8 @@ class User extends Authenticatable implements MustVerifyEmail
      */
     protected $attributes = [
         'current_level' => EnglishLevel::B2->value,
-        // Deliberately not fillable: only `php artisan user:admin` grants it.
+        // Deliberately not fillable: only the owner (the install's first account, see App\Services\Registration) and
+        // `php artisan user:admin` get it.
         'is_admin' => false,
     ];
 
@@ -51,7 +52,57 @@ class User extends Authenticatable implements MustVerifyEmail
             'current_level' => EnglishLevel::class,
             'is_admin' => 'boolean',
             'consented_at' => 'datetime',
+            'platform_ai' => 'boolean',
+            'ai_monthly_cap' => 'integer',
         ];
+    }
+
+    /**
+     * The user's own AI keys, one per provider (encrypted; see UserAiKey).
+     *
+     * @return HasMany<UserAiKey, $this>
+     */
+    public function aiKeys(): HasMany
+    {
+        return $this->hasMany(UserAiKey::class);
+    }
+
+    /**
+     * The provider, model and voice the user picked for each task (see UserAiTask).
+     *
+     * @return HasMany<UserAiTask, $this>
+     */
+    public function aiTasks(): HasMany
+    {
+        return $this->hasMany(UserAiTask::class);
+    }
+
+    /**
+     * The AI calls made for the user, with their sizes and whether they worked (see AiUsage). Counts only: no content.
+     *
+     * @return HasMany<AiUsage, $this>
+     */
+    public function aiUsage(): HasMany
+    {
+        return $this->hasMany(AiUsage::class);
+    }
+
+    /**
+     * The catalogue sources the user has hidden from their feed.
+     *
+     * @return HasMany<UserHiddenSource, $this>
+     */
+    public function hiddenSources(): HasMany
+    {
+        return $this->hasMany(UserHiddenSource::class);
+    }
+
+    /**
+     * Whether the user may use the platform's AI connection when they have no key of their own. Admins always may.
+     */
+    public function mayUsePlatformAi(): bool
+    {
+        return $this->is_admin || $this->platform_ai;
     }
 
     /**

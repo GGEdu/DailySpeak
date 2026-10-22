@@ -1,6 +1,8 @@
 <script setup>
 import { Link, router, usePage } from '@inertiajs/vue3';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import AiLinks from './AiLinks.vue';
+import { errorLinks } from '../lib/aiErrors';
 import { activeLookup, closeLookup, explain, friendlyError, noteInput, openLookup, saveWord, selectedVocabulary, speak } from '../lib/lookup';
 
 const page = usePage();
@@ -11,6 +13,8 @@ const panel = ref(null);
 const status = ref('idle'); // loading | ready | error
 const explanation = ref(null);
 const error = ref('');
+// Where the learner can fix a failure that has an error code (no AI key, monthly cap), see lib/aiErrors.js.
+const problemLinks = ref([]);
 const saving = ref('idle'); // saving | saved | error
 const position = ref({ top: 0, left: 0, width: 340 });
 const canSpeak = typeof window !== 'undefined' && 'speechSynthesis' in window;
@@ -121,6 +125,7 @@ async function lookUp(lookup) {
     status.value = 'loading';
     explanation.value = null;
     error.value = '';
+    problemLinks.value = [];
 
     try {
         explanation.value = await explain(lookup.text, lookup.context, scope.value, request.signal);
@@ -128,6 +133,7 @@ async function lookUp(lookup) {
     } catch (e) {
         if (e.name === 'AbortError') return;
         error.value = friendlyError(e);
+        problemLinks.value = errorLinks(e);
         status.value = 'error';
     }
 
@@ -148,6 +154,7 @@ async function save() {
     } catch (e) {
         if (activeLookup.value !== lookup) return;
         error.value = friendlyError(e);
+        problemLinks.value = errorLinks(e);
         saving.value = 'error';
     }
 }
@@ -244,6 +251,7 @@ onBeforeUnmount(() => {
 
                 <div v-else-if="status === 'error'" class="mt-3 text-sm">
                     <p class="text-listening">{{ error }}</p>
+                    <AiLinks :links="problemLinks" class="mt-2" />
                     <button type="button" class="mt-2 inline-flex min-h-6 items-center font-medium text-ink-300 underline-offset-4 hover:text-ink-100 hover:underline" @click="lookUp(activeLookup)">Try again</button>
                 </div>
 
@@ -263,7 +271,10 @@ onBeforeUnmount(() => {
                     Saved ·
                     <Link href="/vocabulary" class="font-medium underline-offset-4 hover:underline">Your words</Link>
                 </p>
-                <p v-else-if="saving === 'error'" class="text-sm text-listening" role="status">{{ error || "Couldn't save it. Try again." }}</p>
+                <div v-else-if="saving === 'error'" class="text-sm text-listening" role="status">
+                    <p>{{ error || "Couldn't save it. Try again." }}</p>
+                    <AiLinks :links="problemLinks" class="mt-1" />
+                </div>
                 <p v-else class="text-xs text-ink-400">Save it to practise it later.</p>
 
                 <button

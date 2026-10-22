@@ -1,7 +1,11 @@
 <script setup>
-import { Head, Link, useForm } from '@inertiajs/vue3';
+import { Head, Link, useForm, usePage } from '@inertiajs/vue3';
+import { computed } from 'vue';
 import TextField from '../../components/TextField.vue';
 import GuestLayout from '../../layouts/GuestLayout.vue';
+
+// The shared prop registration.open: "Create an account" is offered only while sign-up is open.
+const registrationOpen = computed(() => usePage().props.registration?.open === true);
 
 const form = useForm({
     email: '',
@@ -39,7 +43,7 @@ const submit = () => form.post('/login', { onFinish: () => form.reset('password'
             </button>
         </form>
 
-        <template #footer>
+        <template v-if="registrationOpen" #footer>
             New here?
             <Link href="/register" class="font-medium text-ink-200 underline-offset-4 hover:underline">Create an account</Link>
         </template>

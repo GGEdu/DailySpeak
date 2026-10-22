@@ -3,6 +3,7 @@
 namespace App\Ai\Agents;
 
 use App\Enums\EnglishLevel;
+use App\Services\Ai\AiConnection;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Illuminate\Support\Str;
 use Laravel\Ai\Contracts\Agent;
@@ -35,7 +36,10 @@ class DebateEvaluator implements Agent, HasStructuredOutput
     /**
      * @param  EnglishLevel  $level  The learner's level: the recommendations go just above it.
      */
-    public function __construct(public EnglishLevel $level) {}
+    public function __construct(
+        public EnglishLevel $level,
+        private AiConnection $connection,
+    ) {}
 
     /**
      * Get the instructions that the agent should follow.
@@ -77,23 +81,19 @@ class DebateEvaluator implements Agent, HasStructuredOutput
     }
 
     /**
-     * Get the AI provider the agent should use (the debate tutor's unless configured).
+     * Get the AI provider the agent should use: the learner's connection for writing, built where it runs.
      */
     public function provider(): string
     {
-        return config('debate.evaluator.provider') ?? config('debate.llm.provider');
+        return $this->connection->providerName();
     }
 
     /**
-     * Get the model the agent should use (null uses the provider's default).
+     * Get the model the agent should use: the one the learner picked for writing.
      */
     public function model(): ?string
     {
-        if (config('debate.evaluator.model') !== null) {
-            return config('debate.evaluator.model');
-        }
-
-        return config('debate.evaluator.provider') === null ? config('debate.llm.model') : null;
+        return $this->connection->model;
     }
 
     /**

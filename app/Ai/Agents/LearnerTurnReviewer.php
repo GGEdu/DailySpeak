@@ -3,6 +3,7 @@
 namespace App\Ai\Agents;
 
 use App\Enums\EnglishLevel;
+use App\Services\Ai\AiConnection;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Illuminate\Support\Str;
 use Laravel\Ai\Contracts\Agent;
@@ -26,7 +27,10 @@ class LearnerTurnReviewer implements Agent, HasStructuredOutput
     /**
      * @param  EnglishLevel  $level  The learner's level: only what a learner at it gets wrong is corrected.
      */
-    public function __construct(public EnglishLevel $level) {}
+    public function __construct(
+        public EnglishLevel $level,
+        private AiConnection $connection,
+    ) {}
 
     /**
      * Get the instructions that the agent should follow.
@@ -58,23 +62,19 @@ class LearnerTurnReviewer implements Agent, HasStructuredOutput
     }
 
     /**
-     * Get the AI provider the agent should use (the debate tutor's unless configured).
+     * Get the AI provider the agent should use: the learner's connection for conversation, built where it runs.
      */
     public function provider(): string
     {
-        return config('debate.guided.review.provider') ?? config('debate.llm.provider');
+        return $this->connection->providerName();
     }
 
     /**
-     * Get the model the agent should use (null uses the provider's default).
+     * Get the model the agent should use: the one the learner picked for conversation.
      */
     public function model(): ?string
     {
-        if (config('debate.guided.review.model') !== null) {
-            return config('debate.guided.review.model');
-        }
-
-        return config('debate.guided.review.provider') === null ? config('debate.llm.model') : null;
+        return $this->connection->model;
     }
 
     /**

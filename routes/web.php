@@ -1,10 +1,13 @@
 <?php
 
-use App\Enums\EnglishLevel;
 use App\Http\Controllers\AccountController;
-use App\Http\Controllers\Admin\GuidedDebateController;
+use App\Http\Controllers\Admin\AiController;
 use App\Http\Controllers\Admin\LimitsController;
 use App\Http\Controllers\Admin\NewsSourceController;
+use App\Http\Controllers\Admin\OverviewController;
+use App\Http\Controllers\Admin\PrivacySettingsController;
+use App\Http\Controllers\Admin\RegistrationController;
+use App\Http\Controllers\Admin\UsersController;
 use App\Http\Controllers\Auth\AltchaChallengeController;
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\Auth\EmailVerificationController;
@@ -15,8 +18,12 @@ use App\Http\Controllers\ConsentController;
 use App\Http\Controllers\DebateSessionController;
 use App\Http\Controllers\FeedController;
 use App\Http\Controllers\PrivacyController;
+use App\Http\Controllers\Settings\AiSettingsController;
+use App\Http\Controllers\Settings\SourcesController;
+use App\Http\Controllers\Settings\UsageController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\VocabularyController;
+use App\Services\Ai\ProviderCatalog;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
@@ -107,9 +114,50 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     Route::get('/settings', [SettingsController::class, 'edit'])->name('settings.edit');
     Route::put('/settings', [SettingsController::class, 'update'])->name('settings.update');
+
+    // Mis ajustes: the user's own AI connection, the sources they hide, and their usage. Each key is proved with its
+    // provider before it is kept, and each test is a request to the provider (throttled).
+    Route::get('/settings/ai', [AiSettingsController::class, 'edit'])->name('settings.ai.edit');
+    Route::put('/settings/ai/keys/{provider}', [AiSettingsController::class, 'saveKey'])
+        ->whereIn('provider', ProviderCatalog::ids())
+        ->middleware('throttle:6,1')
+        ->name('settings.ai.keys.save');
+    Route::delete('/settings/ai/keys/{provider}', [AiSettingsController::class, 'forgetKey'])
+        ->whereIn('provider', ProviderCatalog::ids())
+        ->name('settings.ai.keys.forget');
+    Route::put('/settings/ai/tasks', [AiSettingsController::class, 'saveTasks'])->name('settings.ai.tasks.save');
+    Route::post('/settings/ai/test/{provider}', [AiSettingsController::class, 'test'])
+        ->whereIn('provider', ProviderCatalog::ids())
+        ->middleware('throttle:6,1')
+        ->name('settings.ai.test');
+
+    Route::get('/settings/sources', [SourcesController::class, 'index'])->name('settings.sources.index');
+    Route::put('/settings/sources/{source}', [SourcesController::class, 'update'])->name('settings.sources.update');
+
+    Route::get('/settings/usage', [UsageController::class, 'show'])->name('settings.usage.show');
+    Route::put('/settings/usage/cap', [UsageController::class, 'updateCap'])->name('settings.usage.cap');
 });
 
 Route::middleware(['auth', 'verified', 'can:admin'])->prefix('admin')->name('admin.')->group(function () {
+    Route::get('/', [OverviewController::class, 'index'])->name('index');
+
+    Route::put('/registration', [RegistrationController::class, 'update'])->name('registration.update');
+
+    Route::get('/users', [UsersController::class, 'index'])->name('users.index');
+    Route::put('/users/{user}', [UsersController::class, 'update'])->name('users.update');
+    Route::delete('/users/{user}', [UsersController::class, 'destroy'])->name('users.destroy');
+
+    Route::get('/ai', [AiController::class, 'edit'])->name('ai.edit');
+    Route::put('/ai', [AiController::class, 'update'])->name('ai.update');
+    Route::put('/ai/key', [AiController::class, 'saveKey'])->name('ai.key.save');
+    Route::delete('/ai/key', [AiController::class, 'forgetKey'])->name('ai.key.forget');
+    Route::post('/ai/test', [AiController::class, 'test'])
+        ->middleware('throttle:6,1') // each check is a request to the provider
+        ->name('ai.test');
+
+    Route::get('/privacy', [PrivacySettingsController::class, 'edit'])->name('privacy.edit');
+    Route::put('/privacy', [PrivacySettingsController::class, 'update'])->name('privacy.update');
+
     Route::get('/sources', [NewsSourceController::class, 'index'])->name('sources.index');
     Route::post('/sources', [NewsSourceController::class, 'store'])->name('sources.store');
     Route::patch('/sources/{source}', [NewsSourceController::class, 'update'])->name('sources.update');
@@ -119,9 +167,4 @@ Route::middleware(['auth', 'verified', 'can:admin'])->prefix('admin')->name('adm
     Route::get('/limits', [LimitsController::class, 'index'])->name('limits.index');
     Route::put('/limits/{key}', [LimitsController::class, 'update'])->name('limits.update');
     Route::post('/limits/{key}/reset', [LimitsController::class, 'reset'])->name('limits.reset');
-
-    // The guided debate switch per English level (App\Services\Guided\GuidedSettings).
-    Route::put('/guided-debate/{level}', [GuidedDebateController::class, 'update'])
-        ->whereIn('level', array_column(EnglishLevel::cases(), 'value'))
-        ->name('guided-debate.update');
 });

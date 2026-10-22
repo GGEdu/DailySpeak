@@ -15,15 +15,14 @@ use App\Models\NewsArticle;
 use App\Models\User;
 use Illuminate\Broadcasting\BroadcastException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Support\Facades\Broadcast;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Facades\Cache;
-use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Laravel\Ai\Audio;
 use Laravel\Ai\Messages\AssistantMessage;
 use Laravel\Ai\Messages\UserMessage;
@@ -86,7 +85,7 @@ class ProcessVoiceDebateTest extends TestCase
 
         Transcription::assertGenerated(fn (TranscriptionPrompt $prompt) => $prompt->audio->content() === 'recorded-audio'
             && $prompt->language === 'en'
-            && $prompt->provider->name() === 'openai'
+            && $prompt->provider->driver() === 'openai'
             && $prompt->model === 'whisper-1');
 
         DebateTutor::assertPrompted(function (AgentPrompt $prompt) {
@@ -96,7 +95,8 @@ class ProcessVoiceDebateTest extends TestCase
                 && str_contains($prompt->prompt, '<article>')
                 && str_contains($prompt->prompt, 'Title: City approves free public transport')
                 && str_contains($prompt->prompt, 'The council voted to scrap bus fares from next year.')
-                && $prompt->provider->name() === 'gemini'
+                && $prompt->provider->driver() === 'openai'
+                && $prompt->provider->providerCredentials()['key'] === 'sk-factory-test-0000'
                 && str_contains($instructions, 'You are an expert native English tutor and debate partner.')
                 && str_contains($instructions, 'The user is an upper-intermediate (B2) English speaker.')
                 && str_contains($instructions, '5. Speak naturally and use some idiomatic expressions')
@@ -169,14 +169,11 @@ class ProcessVoiceDebateTest extends TestCase
 
     public function test_the_configured_options_are_sent_to_the_tutors_provider(): void
     {
-        // A faster, low-effort answer from an OpenAI-compatible reasoning model.
-        config([
-            'ai.providers.nvidia' => ['driver' => 'openai-compatible', 'url' => 'https://llm.test/v1', 'key' => 'test-key'],
-            'debate.llm.provider' => 'nvidia',
-            'debate.llm.model' => 'openai/gpt-oss-20b',
-            'debate.llm.options' => ['reasoning_effort' => 'low'],
-        ]);
-        Http::preventStrayRequests()->fake(['llm.test/v1/chat/completions' => Http::response([
+        // A faster, low-effort answer from a reasoning model, on the owner's own Groq connection.
+        config(['debate.llm.options' => ['reasoning_effort' => 'low']]);
+        $this->debate->user->aiKeys()->create(['provider' => 'groq', 'key' => 'gsk-test-0000', 'last4' => '0000', 'verified_at' => now()]);
+        $this->debate->user->aiTasks()->where('task', 'conversation')->update(['provider' => 'groq', 'model' => 'openai/gpt-oss-20b']);
+        Http::preventStrayRequests()->fake(['api.groq.com/*' => Http::response([
             'id' => 'chatcmpl-1',
             'model' => 'openai/gpt-oss-20b',
             'choices' => [['index' => 0, 'message' => ['role' => 'assistant', 'content' => self::TUTOR_SAYS], 'finish_reason' => 'stop']],
@@ -203,34 +200,32 @@ class ProcessVoiceDebateTest extends TestCase
         $reply = $this->debate->messages()->where('role', MessageRole::Assistant)->sole();
         $timings = Mockery::on(fn (array $context) => $context['debate_id'] === $this->debate->id
             && $context['message_id'] === $reply->id
-            && $context['llm'] === 'gemini/default'
             && collect(['queue_ms', 'stt_ms', 'llm_ms', 'tts_ms', 'total_ms'])->every(fn (string $key) => is_int($context[$key]) && $context[$key] >= 0)
             && $context['total_ms'] >= $context['stt_ms'] + $context['llm_ms'] + $context['tts_ms']);
 
         Log::shouldHaveReceived('info')->once()->with('Voice turn answered.', $timings);
     }
 
-    public function test_it_uses_the_configured_models_and_voice(): void
+    public function test_it_uses_the_models_and_voice_the_owner_picked(): void
     {
-        config([
-            'debate.stt' => ['provider' => 'groq', 'model' => 'whisper-large-v3-turbo', 'language' => 'en', 'timeout' => 30],
-            'debate.llm.provider' => 'openai',
-            'debate.llm.model' => 'gpt-4o-mini',
-            'debate.tts' => ['provider' => 'eleven', 'model' => 'eleven_flash_v2_5', 'voice' => 'voice-123', 'timeout' => 30],
-        ]);
+        $user = $this->debate->user;
+        $user->aiKeys()->create(['provider' => 'groq', 'key' => 'gsk-test-0000', 'last4' => '0000', 'verified_at' => now()]);
+        $user->aiTasks()->where('task', 'stt')->update(['provider' => 'groq', 'model' => 'whisper-large-v3-turbo']);
+        $user->aiTasks()->where('task', 'conversation')->update(['model' => 'gpt-4o-mini']);
+        $user->aiTasks()->where('task', 'tts')->update(['model' => 'gpt-4o-mini-tts', 'voice' => 'nova']);
         Transcription::fake([self::USER_SAYS]);
         DebateTutor::fake([self::TUTOR_SAYS]);
         Audio::fake([base64_encode('mp3')]);
 
         ProcessVoiceDebate::dispatch($this->debate, self::RECORDING);
 
-        Transcription::assertGenerated(fn (TranscriptionPrompt $prompt) => $prompt->provider->name() === 'groq'
+        Transcription::assertGenerated(fn (TranscriptionPrompt $prompt) => $prompt->provider->driver() === 'groq'
             && $prompt->model === 'whisper-large-v3-turbo');
-        DebateTutor::assertPrompted(fn (AgentPrompt $prompt) => $prompt->provider->name() === 'openai'
+        DebateTutor::assertPrompted(fn (AgentPrompt $prompt) => $prompt->provider->driver() === 'openai'
             && $prompt->model === 'gpt-4o-mini');
-        Audio::assertGenerated(fn (AudioPrompt $prompt) => $prompt->provider->name() === 'eleven'
-            && $prompt->model === 'eleven_flash_v2_5'
-            && $prompt->voice === 'voice-123');
+        Audio::assertGenerated(fn (AudioPrompt $prompt) => $prompt->provider->driver() === 'openai'
+            && $prompt->model === 'gpt-4o-mini-tts'
+            && $prompt->voice === 'nova');
     }
 
     public function test_silence_is_reported_without_asking_the_tutor(): void
@@ -341,14 +336,13 @@ class ProcessVoiceDebateTest extends TestCase
 
         $job = new ProcessVoiceDebate($this->debate, self::RECORDING);
 
-        // The backup voice only runs after the main one failed, inside the same turn. Both broadcasts run
-        // synchronously in the turn too, each within the broadcaster's timeout, and the overhead has to fit.
+        // Both broadcasts run synchronously in the turn too, each within the broadcaster's timeout, and the overhead has
+        // to fit. There is no backup voice: one voice per turn, on the owner's own connection.
         $budget = config('debate.stt.timeout') + config('debate.llm.timeout') + config('debate.tts.timeout')
-            + config('debate.tts.fallback.timeout')
             + 2 * config('broadcasting.connections.reverb.client_options.timeout')
             + ProcessVoiceDebate::OVERHEAD_SECONDS;
 
-        $this->assertSame(119, $budget);
+        $this->assertSame(99, $budget);
         $this->assertLessThan($job->timeout, $budget);
     }
 
@@ -370,27 +364,8 @@ class ProcessVoiceDebateTest extends TestCase
         $this->assertSame(1, $middleware->releaseAfter);
     }
 
-    public function test_a_backup_voice_speaks_when_the_main_one_fails(): void
+    public function test_a_failed_synthesis_fails_the_turn_because_there_is_no_backup_voice(): void
     {
-        config(['debate.tts.fallback' => ['provider' => 'openai', 'model' => 'tts-backup', 'voice' => 'eve', 'timeout' => 20]]);
-        Transcription::fake([self::USER_SAYS]);
-        DebateTutor::fake([self::TUTOR_SAYS])->preventStrayPrompts();
-        Audio::fake(fn (AudioPrompt $prompt) => $prompt->voice === 'eve'
-            ? base64_encode('backup-mp3')
-            : throw new RuntimeException('Main voice down'));
-
-        ProcessVoiceDebate::dispatch($this->debate, self::RECORDING);
-
-        $reply = $this->debate->messages()->where('role', MessageRole::Assistant)->sole();
-        $this->assertSame(self::TUTOR_SAYS, $reply->transcript);
-        $this->assertSame('backup-mp3', Storage::disk('local')->get($reply->audio_path));
-        Audio::assertGenerated(fn (AudioPrompt $prompt) => $prompt->model === 'tts-backup' && $prompt->voice === 'eve' && $prompt->timeout === 20);
-        Event::assertDispatched(AIResponseGenerated::class);
-    }
-
-    public function test_without_a_backup_voice_a_failed_synthesis_fails_the_turn_as_before(): void
-    {
-        config(['debate.tts.fallback.model' => null]);
         Transcription::fake([self::USER_SAYS]);
         DebateTutor::fake([self::TUTOR_SAYS]);
         Audio::fake(fn () => throw new RuntimeException('Main voice down'));
@@ -445,28 +420,6 @@ class ProcessVoiceDebateTest extends TestCase
         // The recording's name without its extension: the id the 202 response gave the client.
         Event::assertDispatched(UserTurnTranscribed::class, fn (UserTurnTranscribed $event) => $event->broadcastWith()['turn'] === 'turn');
         Event::assertDispatched(AIResponseGenerated::class, fn (AIResponseGenerated $event) => $event->broadcastWith()['turn'] === 'turn');
-    }
-
-    public function test_a_reply_in_the_backup_voice_is_logged_with_its_turn(): void
-    {
-        config(['debate.tts.fallback' => ['provider' => 'openai', 'model' => 'tts-backup', 'voice' => 'eve', 'timeout' => 20]]);
-        Log::spy();
-        Transcription::fake([self::USER_SAYS]);
-        DebateTutor::fake([self::TUTOR_SAYS]);
-        Audio::fake(fn (AudioPrompt $prompt) => $prompt->voice === 'eve'
-            ? base64_encode('backup-mp3')
-            : throw new RuntimeException('Main voice down'));
-
-        ProcessVoiceDebate::dispatch($this->debate, self::RECORDING);
-
-        Log::shouldHaveReceived('warning')->once()->with(
-            'Main voice failed; answering with the backup voice.',
-            Mockery::on(fn (array $context) => $context['debate_id'] === $this->debate->id && $context['turn'] === 'turn'
-                && $context['tts'] === 'openai'),
-        );
-        Log::shouldHaveReceived('info')->once()->with('Voice turn answered.', Mockery::on(fn (array $context) => $context['tts_backup'] === true
-            && $context['debate_id'] === $this->debate->id
-            && $context['turn'] === 'turn'));
     }
 
     public function test_a_failed_attempt_is_retried_and_the_turn_is_still_answered(): void

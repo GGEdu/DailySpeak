@@ -4,18 +4,17 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Word Lookup Model
+    | Word Lookup
     |--------------------------------------------------------------------------
     |
     | Explains the word or expression the user selects: translation, a short
-    | definition, an example and synonyms. The user is waiting for it, so
-    | pick a fast model that does not reason (e.g. a "chat" gateway alias).
+    | definition, an example and synonyms. The user is waiting for it, so the
+    | model they pick should be a fast one that does not reason. The asker's
+    | own connection pays for it (App\Services\Ai\AiConnections).
     |
     */
 
     'ai' => [
-        'provider' => env('LOOKUP_AI_PROVIDER', 'gemini'),
-        'model' => env('LOOKUP_AI_MODEL') ?: null,
         'timeout' => (int) env('LOOKUP_AI_TIMEOUT', 20),
     ],
 

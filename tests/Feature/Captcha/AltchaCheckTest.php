@@ -9,12 +9,20 @@ use App\Models\User;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Notification;
+use Tests\Support\OpensSignUp;
 use Tests\Support\SolvesAltcha;
 use Tests\TestCase;
 
 class AltchaCheckTest extends TestCase
 {
-    use RefreshDatabase, SolvesAltcha;
+    use OpensSignUp, RefreshDatabase, SolvesAltcha;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->signUpIsOpen();
+    }
 
     public function test_the_challenge_asks_for_the_configured_work_and_is_not_cached(): void
     {

@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Services\AiBudget;
-use App\Services\Guided\GuidedSettings;
 use App\Services\Limits;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -16,11 +15,10 @@ use Inertia\Response;
  */
 class LimitsController extends Controller
 {
-    public function index(Limits $limits, AiBudget $budget, GuidedSettings $guided): Response
+    public function index(Limits $limits, AiBudget $budget): Response
     {
         return Inertia::render('admin/Limits', [
             'limits' => $limits->overview(),
-            'guidedDebate' => $guided->overview(),
             'aiBudget' => [
                 'used' => $budget->usedToday(),
                 'limit' => $limits->value('ai_daily_global'),

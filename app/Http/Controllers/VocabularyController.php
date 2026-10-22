@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Jobs\AnalyzeVocabulary;
 use App\Models\UserVocabulary;
+use App\Services\Ai\AiCapReached;
+use App\Services\Ai\AiNotConfigured;
 use App\Services\AiBudget;
 use App\Services\AiBudgetUsedUp;
 use App\Services\Vocabulary\WordLookup;
@@ -147,18 +149,20 @@ class VocabularyController extends Controller
     /**
      * Explain a word that has no analysis yet (e.g. one recommended in a fluency report).
      */
-    public function analyze(Request $request, UserVocabulary $vocabulary, WordLookup $lookup, AiBudget $budget): RedirectResponse
+    public function analyze(Request $request, UserVocabulary $vocabulary, WordLookup $lookup): RedirectResponse
     {
         if ($vocabulary->analysis !== null) {
             return back();
         }
 
-        // Explaining the word is the paid call, taken from the budget only when the AI is asked (not for a cached
-        // explanation); the page is told when the budget is gone.
+        // Explaining the word is the paid call, made on the owner's connection only when the AI is asked (not for a
+        // cached explanation). A missing connection or a used-up cap is answered by the handler (under "ai").
         try {
-            AnalyzeVocabulary::store($vocabulary, $lookup, fn () => $budget->spendOrFail($request->user()));
+            AnalyzeVocabulary::store($vocabulary, $lookup);
         } catch (AiBudgetUsedUp) {
             return back()->withErrors(['analysis' => AiBudget::USED_UP_MESSAGE]);
+        } catch (AiNotConfigured|AiCapReached $e) {
+            throw $e;
         } catch (Throwable $e) {
             report($e);
 

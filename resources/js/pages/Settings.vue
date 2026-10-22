@@ -2,6 +2,8 @@
 import { Head, useForm, usePage } from '@inertiajs/vue3';
 import AppLayout from '../layouts/AppLayout.vue';
 import DeleteAccountForm from '../components/DeleteAccountForm.vue';
+import SectionTabs from '../components/SectionTabs.vue';
+import { SETTINGS_TABS } from '../lib/tabs';
 
 defineOptions({ layout: AppLayout });
 
@@ -23,6 +25,8 @@ const submit = () => form.put('/settings', { preserveScroll: true });
         <header>
             <h1 class="text-3xl font-semibold tracking-tight text-ink-100">Settings</h1>
         </header>
+
+        <SectionTabs class="mt-8" :tabs="SETTINGS_TABS" label="Settings sections" />
 
         <form class="mt-10 rounded-3xl border border-white/8 bg-ink-900/60 p-6 sm:p-8" @submit.prevent="submit">
             <fieldset>

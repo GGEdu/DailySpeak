@@ -8,6 +8,8 @@ use App\Enums\MessageRole;
 use App\Models\Debate;
 use App\Models\DebateBrief;
 use App\Models\DebateMessage;
+use App\Services\Ai\AiConnection;
+use App\Services\Ai\AiConnections;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 use Laravel\Ai\Contracts\Agent;
@@ -33,6 +35,7 @@ class DebateTutor implements Agent, Conversational, HasProviderOptions
     public function __construct(
         public Debate $debate,
         public DebateMessage $turn,
+        private ?AiConnection $connection = null,
     ) {}
 
     /**
@@ -111,19 +114,27 @@ class DebateTutor implements Agent, Conversational, HasProviderOptions
     }
 
     /**
-     * Get the AI provider the agent should use.
+     * Get the AI provider the agent should use: the debate owner's connection for conversation, built where it runs.
      */
     public function provider(): string
     {
-        return config('debate.llm.provider');
+        return $this->resolvedConnection()->providerName();
     }
 
     /**
-     * Get the model the agent should use (null uses the provider's default).
+     * Get the model the agent should use: the one the owner picked for conversation.
      */
     public function model(): ?string
     {
-        return config('debate.llm.model');
+        return $this->resolvedConnection()->model;
+    }
+
+    /**
+     * The connection the reply is paid through. A caller that has resolved it passes it in; otherwise it is the owner's.
+     */
+    private function resolvedConnection(): AiConnection
+    {
+        return $this->connection ??= app(AiConnections::class)->forUser($this->debate->user, 'conversation');
     }
 
     /**

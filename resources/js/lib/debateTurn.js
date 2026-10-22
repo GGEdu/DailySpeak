@@ -1,5 +1,6 @@
 import { postForm } from './http.js';
 import { extensionFor } from './audio.js';
+import { errorLinks } from './aiErrors.js';
 import { addMissing, findTurnMessages, latestId, mergeCorrections, mergeMessages, setCorrectionDismissed, upsertMessage, withoutPending } from './transcript.js';
 
 /**
@@ -56,7 +57,8 @@ export function randomTurnId(cryptoApi = globalThis.crypto) {
  * Upload one recording. A request that got no answer (a dropped connection, or the timeout in postForm)
  * is sent once more with the same recording and the same turn id, which the server stores only once, so
  * a first request that did arrive is not paid twice. A 409 means that first request is still being
- * stored: the turn is on its way. Any other answer from the server is final.
+ * stored: the turn is on its way. Any other answer from the server is final. A 409 that names a code (no AI key for
+ * the task) is such an answer too: nothing is being stored.
  */
 export async function uploadTurn(url, blob, turn = null, send = postForm) {
     for (let attempt = 1; attempt <= MAX_UPLOAD_ATTEMPTS; attempt += 1) {
@@ -70,7 +72,7 @@ export async function uploadTurn(url, blob, turn = null, send = postForm) {
         try {
             return await send(url, body);
         } catch (error) {
-            if (error.status === 409 && turn) {
+            if (error.status === 409 && turn && !error.code) {
                 return { status: 'processing', turn };
             }
 
@@ -133,7 +135,8 @@ export function createDebateTurns({
         }
     }
 
-    function failTurn(turn, text, serverDeleted = false) {
+    // `links` point the learner at the setting that fixes the failure (see lib/aiErrors.js).
+    function failTurn(turn, text, serverDeleted = false, links = []) {
         finish(turn);
 
         if (serverDeleted && turn.userId != null) {
@@ -146,7 +149,7 @@ export function createDebateTurns({
             store.state = 'idle';
         }
 
-        store.notice = { tone: 'error', text };
+        store.notice = links.length > 0 ? { tone: 'error', text, links } : { tone: 'error', text };
     }
 
     // The event belongs to the pending turn when it names it, or when it names none. While the upload has
@@ -428,7 +431,7 @@ export function createDebateTurns({
             }
         } catch (error) {
             if (!turn.done) {
-                failTurn(turn, error.message);
+                failTurn(turn, error.message, false, errorLinks(error));
             }
         }
     }

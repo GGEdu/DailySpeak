@@ -88,7 +88,7 @@ class EvaluateDebateTest extends TestCase
             && str_contains($prompt->prompt, "1. I am agree with this, it is very good.\n2. Because the thing is very expensive.")
             && ! str_contains($prompt->prompt, 'Why do you think so?')
             && str_contains((string) $prompt->agent->instructions(), "Analyze the following transcript of an English learner's side of a debate.")
-            && $prompt->provider->name() === 'gemini');
+            && $prompt->provider->driver() === 'openai');
     }
 
     public function test_words_already_in_the_deck_are_not_duplicated(): void
@@ -280,7 +280,7 @@ class EvaluateDebateTest extends TestCase
 
         DebateEvaluator::assertPrompted(fn (AgentPrompt $prompt) => substr_count($prompt->prompt, 'Turn number') === 30
             && str_contains($prompt->prompt, "1. Turn number 6.\n")
-            && str_contains($prompt->prompt, "30. Turn number 35.")
+            && str_contains($prompt->prompt, '30. Turn number 35.')
             && ! str_contains($prompt->prompt, 'Turn number 5.'));
     }
 

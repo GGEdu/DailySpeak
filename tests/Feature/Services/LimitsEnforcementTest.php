@@ -24,7 +24,11 @@ class LimitsEnforcementTest extends TestCase
     {
         app(Limits::class)->save('ai_daily_global', 1, User::factory()->admin()->create());
         WordExplainer::fake([WordLookupTest::EXPLANATION])->preventStrayPrompts();
-        Sanctum::actingAs(User::factory()->create());
+        // The budget counts the calls the platform pays for: this user is allowed the platform and picked it.
+        $user = User::factory()->create();
+        $user->forceFill(['platform_ai' => true])->save();
+        $user->aiTasks()->update(['provider' => 'platform']);
+        Sanctum::actingAs($user);
 
         $this->postJson('/api/lookups', ['text' => 'nuance'])->assertOk();
         $this->postJson('/api/lookups', ['text' => 'lapse'])->assertStatus(429);

@@ -4,6 +4,8 @@ use App\Http\Middleware\ApiSecurityHeaders;
 use App\Http\Middleware\EnsureEmailVerifiedAndConsented;
 use App\Http\Middleware\HandleInertiaRequests;
 use App\Http\Middleware\SecurityHeaders;
+use App\Services\Ai\AiCapReached;
+use App\Services\Ai\AiNotConfigured;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -47,4 +49,18 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->shouldRenderJsonWhen(
             fn (Request $request) => $request->is('api/*') || $request->expectsJson(),
         );
+
+        // A missing connection or a used-up cap is the user's to fix, so the API says what to do (409 and 429 with a
+        // code), and the page points at the settings (an error under the "ai" key, see App\Services\Ai\AiNotConfigured).
+        $exceptions->render(function (AiNotConfigured $e, Request $request) {
+            return $request->expectsJson()
+                ? response()->json(['message' => $e->getMessage(), 'code' => AiNotConfigured::CODE], 409)
+                : back()->withErrors(['ai' => $e->getMessage()]);
+        });
+
+        $exceptions->render(function (AiCapReached $e, Request $request) {
+            return $request->expectsJson()
+                ? response()->json(['message' => $e->getMessage(), 'code' => AiCapReached::CODE], 429)
+                : back()->withErrors(['ai' => $e->getMessage()]);
+        });
     })->create();

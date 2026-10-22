@@ -5,6 +5,7 @@ namespace Tests\Feature\Api;
 use App\Ai\Agents\WordExplainer;
 use App\Enums\EnglishLevel;
 use App\Models\User;
+use App\Services\Ai\AiConnection;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Ai\Prompts\AgentPrompt;
 use Laravel\Sanctum\Sanctum;
@@ -56,7 +57,8 @@ class WordLookupTest extends TestCase
     {
         config(['lookup.target_language' => 'Spanish']);
 
-        $instructions = (string) (new WordExplainer(EnglishLevel::B1))->instructions();
+        $connection = new AiConnection('conversation', 'user', 'openai', 'gpt-4o-mini', null, ['driver' => 'openai', 'key' => 'sk-test', 'url' => 'https://api.openai.com/v1']);
+        $instructions = (string) (new WordExplainer(EnglishLevel::B1, $connection))->instructions();
 
         $this->assertStringContainsString('Spanish', $instructions);
         $this->assertStringContainsString('(B1)', $instructions);

@@ -7,7 +7,9 @@ use App\Http\Requests\StoreDebateAudioRequest;
 use App\Jobs\ProcessVoiceDebate;
 use App\Models\Debate;
 use App\Models\User;
+use App\Services\Ai\AiCalls;
 use App\Services\AiBudget;
+use App\Services\AiBudgetUsedUp;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\UploadedFile;
@@ -19,7 +21,7 @@ use Throwable;
 
 class DebateAudioController extends Controller
 {
-    public function __construct(private AiBudget $budget) {}
+    public function __construct(private AiCalls $calls) {}
 
     /**
      * Receive a recorded voice turn and queue the tutor's answer.
@@ -60,12 +62,15 @@ class DebateAudioController extends Controller
     }
 
     /**
-     * Store the recording under the turn's name and queue the turn. Queuing it is the paid call, so it takes the
-     * budget first; a turn that is only recognised as received (see store) costs nothing.
+     * Store the recording under the turn's name and queue the turn. The three paid calls of a turn (speech-to-text, the
+     * tutor and the voice) are checked first, on the owner's connections: a turn that is only recognised as received
+     * (see store) costs nothing. A missing connection answers 409, a used-up cap or budget 429.
      */
     private function queueTurn(Debate $debate, UploadedFile $recording, string $extension, string $turn, ?User $speaker): JsonResponse
     {
-        if (! $this->budget->spend($speaker)) {
+        try {
+            $this->calls->checkAll($debate->user, ['stt', 'conversation', 'tts']);
+        } catch (AiBudgetUsedUp) {
             return response()->json(['message' => AiBudget::USED_UP_MESSAGE], 429);
         }
 

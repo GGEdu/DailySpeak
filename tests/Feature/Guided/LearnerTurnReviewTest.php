@@ -15,7 +15,6 @@ use App\Models\DebateBrief;
 use App\Models\DebateMessage;
 use App\Models\NewsArticle;
 use App\Models\User;
-use App\Services\AiBudget;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
@@ -191,10 +190,10 @@ class LearnerTurnReviewTest extends TestCase
         Event::assertDispatched(LearnerTurnReviewed::class, fn (LearnerTurnReviewed $event) => $event->corrections === []);
     }
 
-    public function test_a_used_up_budget_reviews_nothing_and_stores_an_empty_list(): void
+    public function test_an_owner_without_a_connection_is_reviewed_by_nobody_and_stores_an_empty_list(): void
     {
-        config(['limits.ai_daily_global' => 1]);
-        app(AiBudget::class)->spend(User::factory()->create());
+        // The review is paid by the owner's own connection for conversation: with none, nothing is sent.
+        $this->turn->debate->user->aiTasks()->delete();
         $this->reviewerSays([$this->correction()]);
 
         $this->review();
