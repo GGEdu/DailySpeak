@@ -30,6 +30,7 @@ class EmailVerificationTest extends TestCase
             'password' => 'a-long-password',
             'password_confirmation' => 'a-long-password',
             'current_level' => EnglishLevel::B2->value,
+            'consent' => true,
         ]))->assertRedirect('/email/verify');
 
         Notification::assertSentTo(User::where('email', 'ana@example.com')->sole(), QueuedVerifyEmail::class);
@@ -45,6 +46,7 @@ class EmailVerificationTest extends TestCase
             'password' => 'a-long-password',
             'password_confirmation' => 'a-long-password',
             'current_level' => EnglishLevel::B2->value,
+            'consent' => true,
         ]))->assertRedirect('/email/verify');
 
         Queue::assertPushed(SendQueuedNotifications::class, fn (SendQueuedNotifications $job) => $job->notification instanceof VerifyEmail);

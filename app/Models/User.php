@@ -23,6 +23,12 @@ class User extends Authenticatable implements MustVerifyEmail
     use HasApiTokens, HasFactory, Notifiable;
 
     /**
+     * The version of the privacy notice the sign-up checkbox and the consent page refer to. Change it when the
+     * notice changes: everyone who accepted an older version is asked again.
+     */
+    public const CONSENT_VERSION = '2026-10-22';
+
+    /**
      * The model's default values for attributes.
      *
      * @var array<string, mixed>
@@ -45,7 +51,29 @@ class User extends Authenticatable implements MustVerifyEmail
             'password' => 'hashed',
             'current_level' => EnglishLevel::class,
             'is_admin' => 'boolean',
+            'consented_at' => 'datetime',
         ];
+    }
+
+    /**
+     * Whether the user accepted the privacy notice in its current version: the tutor sends their voice and texts to
+     * AI providers only after this.
+     */
+    public function hasCurrentConsent(): bool
+    {
+        return $this->consented_at !== null && $this->consent_version === self::CONSENT_VERSION;
+    }
+
+    /**
+     * Records the acceptance of the current privacy notice, with its date and version (the proof of consent).
+     */
+    public function recordConsent(): void
+    {
+        // Not fillable: the acceptance is written here, never taken from the request.
+        $this->forceFill([
+            'consented_at' => now(),
+            'consent_version' => self::CONSENT_VERSION,
+        ])->save();
     }
 
     /**

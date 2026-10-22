@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\ApiSecurityHeaders;
+use App\Http\Middleware\EnsureEmailVerifiedAndConsented;
 use App\Http\Middleware\HandleInertiaRequests;
 use App\Http\Middleware\SecurityHeaders;
 use Illuminate\Foundation\Application;
@@ -24,6 +25,9 @@ return Application::configure(basePath: dirname(__DIR__))
 
         // A password change (including a reset) signs out the sessions that were open with the old one.
         $middleware->authenticateSessions();
+
+        // Every route that needs a confirmed account (web and API) also needs the privacy notice accepted.
+        $middleware->alias(['verified' => EnsureEmailVerifiedAndConsented::class]);
 
         // JSON gets the headers that apply to it (no page policy), also on errors.
         $middleware->api(prepend: [

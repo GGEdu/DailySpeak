@@ -32,6 +32,9 @@ class UserFactory extends Factory
             'password' => static::$password ??= Hash::make('password'),
             'current_level' => fake()->randomElement(EnglishLevel::cases()),
             'remember_token' => Str::random(10),
+            // Most tests are about the app, not the sign-up: their users have accepted the current notice.
+            'consented_at' => now(),
+            'consent_version' => User::CONSENT_VERSION,
         ];
     }
 
@@ -52,6 +55,17 @@ class UserFactory extends Factory
     {
         return $this->state(fn (array $attributes) => [
             'current_level' => $level,
+        ]);
+    }
+
+    /**
+     * Indicate that the user has not accepted the privacy notice yet (accounts created before it existed).
+     */
+    public function withoutConsent(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'consented_at' => null,
+            'consent_version' => null,
         ]);
     }
 

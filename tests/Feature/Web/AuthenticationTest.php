@@ -65,6 +65,7 @@ class AuthenticationTest extends TestCase
             'name' => 'Ada Lovelace',
             'email' => 'ada@example.com',
             'current_level' => 'C1',
+            'consent' => true,
             'password' => 'a-strong-password',
             'password_confirmation' => 'a-strong-password',
         ]))->assertRedirect('/email/verify');
@@ -82,6 +83,7 @@ class AuthenticationTest extends TestCase
             'name' => '',
             'email' => 'taken@example.com',
             'current_level' => 'A1',
+            'consent' => true,
             'password' => 'one',
             'password_confirmation' => 'two',
         ]))->assertSessionHasErrors(['name', 'email', 'current_level', 'password']);
@@ -210,6 +212,7 @@ class AuthenticationTest extends TestCase
             'current_level' => 'C1',
             'password' => $password,
             'password_confirmation' => $password,
+            'consent' => true,
         ]);
     }
 }

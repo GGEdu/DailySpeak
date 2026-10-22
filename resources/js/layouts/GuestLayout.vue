@@ -45,6 +45,10 @@ const status = computed(() => usePage().props.flash?.status);
             <div class="mt-6 text-center text-sm text-ink-400">
                 <slot name="footer" />
             </div>
+
+            <p class="mt-8 text-center text-xs text-ink-500">
+                <Link href="/privacy" class="hover:text-ink-300 underline-offset-4 hover:underline">Privacy notice</Link>
+            </p>
         </main>
     </div>
 </template>

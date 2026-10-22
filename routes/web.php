@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AccountController;
+use App\Http\Controllers\ConsentController;
 use App\Http\Controllers\Admin\NewsSourceController;
 use App\Http\Controllers\Auth\AltchaChallengeController;
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
@@ -10,6 +11,7 @@ use App\Http\Controllers\Auth\PasswordResetLinkController;
 use App\Http\Controllers\Auth\RegisteredUserController;
 use App\Http\Controllers\DebateSessionController;
 use App\Http\Controllers\FeedController;
+use App\Http\Controllers\PrivacyController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\VocabularyController;
 use Illuminate\Support\Facades\Route;
@@ -18,6 +20,9 @@ use Inertia\Inertia;
 Route::get('/', function () {
     return auth()->check() ? to_route('feed') : Inertia::render('Welcome');
 })->name('home');
+
+// The privacy notice: public, so it can be read before signing up.
+Route::get('/privacy', [PrivacyController::class, 'show'])->name('privacy');
 
 Route::middleware('guest')->group(function () {
     Route::get('/login', [AuthenticatedSessionController::class, 'create'])->name('login');
@@ -63,6 +68,10 @@ Route::middleware('auth')->group(function () {
     Route::delete('/settings/account', [AccountController::class, 'destroy'])
         ->middleware('throttle:6,1') // the password check is a guess target
         ->name('account.destroy');
+
+    // Accounts that signed up before the notice accept it here, once (see EnsureEmailVerifiedAndConsented).
+    Route::get('/consent', [ConsentController::class, 'show'])->name('consent.show');
+    Route::post('/consent', [ConsentController::class, 'store'])->name('consent.store');
 });
 
 // Everything else needs a confirmed address: open sign-up must not mean open access to the AI budget.
