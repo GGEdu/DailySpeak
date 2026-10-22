@@ -41,7 +41,7 @@ return [
         'retention_days' => $positive('DEBATE_AUDIO_RETENTION_DAYS', 7),
         // Voice turns a regular user may send in each 24-hour window (admins are exempt). The window is a fixed
         // one, counted from the first turn in it (RateLimiter, debate-audio). Each turn costs STT + LLM + TTS,
-        // so this is the cap on the AI bill per account.
+        // so this is the cap on the AI bill per account. An admin can change it on /admin/limits; this is the default.
         'daily_turns' => $positive('DEBATE_DAILY_TURNS', 300),
         'max_upload_kilobytes' => 10 * 1024,
         // Accepted upload format (extension guessed from the file contents) => extension it is
