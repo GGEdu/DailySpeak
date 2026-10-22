@@ -22,7 +22,7 @@ return [
     /*
     | PBKDF2-SHA-256 iterations for each attempt.
     */
-    'cost' => max(1, (int) env('ALTCHA_COST', 5000)),
+    'cost' => max(1, (int) env('ALTCHA_COST', 20000)),
 
     /*
     | Bytes of the derived key the browser must match, from a random prefix
