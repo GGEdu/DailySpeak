@@ -36,7 +36,8 @@ return [
         'disk' => env('DEBATE_AUDIO_DISK', 'local'),
         'url_ttl_minutes' => 60,
         // GDPR data minimisation: users' recordings are deleted after this many days
-        // (debates:prune-recordings, daily). Transcripts and tutor replies are kept.
+        // (debates:prune-recordings, daily). The tutor's audio replies go too (config/privacy.php);
+        // transcripts and reports are kept while the account exists.
         'retention_days' => $positive('DEBATE_AUDIO_RETENTION_DAYS', 7),
         // Voice turns a regular user may send in each 24-hour window (admins are exempt). The window is a fixed
         // one, counted from the first turn in it (RateLimiter, debate-audio). Each turn costs STT + LLM + TTS,
