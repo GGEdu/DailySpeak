@@ -16,6 +16,10 @@ class PrivacyController extends Controller
     {
         return Inertia::render('Privacy', [
             'version' => User::CONSENT_VERSION,
+            'responsible' => [
+                'controller' => config('privacy.controller'),
+                'contact_email' => config('privacy.contact_email'),
+            ],
             'retention' => [
                 'recordings' => (int) config('debate.audio.retention_days'),
                 // Null: the same period as the recordings (config/privacy.php).

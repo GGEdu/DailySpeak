@@ -20,6 +20,17 @@ class PrivacyPageTest extends TestCase
         $this->actingAs(User::factory()->create())->get('/privacy')->assertOk();
     }
 
+    public function test_who_is_responsible_appears_only_once_the_operator_has_set_it(): void
+    {
+        $this->get('/privacy')->assertInertia(fn ($page) => $page->where('responsible.controller', null)->where('responsible.contact_email', null));
+
+        config(['privacy.controller' => 'Example Operator', 'privacy.contact_email' => 'privacy@example.test']);
+
+        $this->get('/privacy')->assertInertia(fn ($page) => $page
+            ->where('responsible.controller', 'Example Operator')
+            ->where('responsible.contact_email', 'privacy@example.test'));
+    }
+
     public function test_the_notice_states_the_retention_periods_from_the_configuration(): void
     {
         config([

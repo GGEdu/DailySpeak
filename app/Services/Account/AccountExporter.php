@@ -35,6 +35,8 @@ class AccountExporter
                 'email' => $user->email,
                 'current_level' => $user->current_level->value,
                 'email_verified_at' => $user->email_verified_at?->toIso8601String(),
+                'consented_at' => $user->consented_at?->toIso8601String(),
+                'consent_version' => $user->consent_version,
                 'created_at' => $user->created_at?->toIso8601String(),
             ],
             'debates' => $debates->map(fn (Debate $debate) => [

@@ -6,6 +6,8 @@ import '../lib/navigation';
 
 const props = defineProps({
     version: { type: String, required: true },
+    // controller and contact_email: null until the operator sets them (config/privacy.php).
+    responsible: { type: Object, default: () => ({ controller: null, contact_email: null }) },
     retention: {
         type: Object,
         required: true,
@@ -44,6 +46,17 @@ const signedIn = computed(() => Boolean(usePage().props.auth?.user));
                 DailySpeak is a debate tutor. You pick a news story, take a side and argue it out loud with an AI tutor.
                 This notice says what we keep, who receives it, for how long, and what you can do about it.
             </p>
+
+            <section v-if="responsible.controller || responsible.contact_email" class="mt-10" aria-labelledby="responsible-heading">
+                <h2 id="responsible-heading" class="text-lg font-semibold text-ink-100">Who is responsible</h2>
+                <p class="mt-3 leading-relaxed text-ink-300">
+                    <template v-if="responsible.controller">{{ responsible.controller }} is responsible for your data. </template>
+                    <template v-if="responsible.contact_email">
+                        For any privacy request, write to
+                        <a :href="`mailto:${responsible.contact_email}`" class="text-ink-100 underline underline-offset-2">{{ responsible.contact_email }}</a>.
+                    </template>
+                </p>
+            </section>
 
             <section class="mt-10" aria-labelledby="keep-heading">
                 <h2 id="keep-heading" class="text-lg font-semibold text-ink-100">What we keep</h2>

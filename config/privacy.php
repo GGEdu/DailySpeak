@@ -43,4 +43,19 @@ return [
 
     'transcripts_retention_days' => (int) env('PRIVACY_TRANSCRIPTS_RETENTION_DAYS', 0),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Who Is Responsible
+    |--------------------------------------------------------------------------
+    |
+    | The data controller and the address for privacy requests, shown on the
+    | privacy notice (GDPR art. 13). Each line is left out while it is empty:
+    | these are the operator's facts, not something the app can make up.
+    |
+    */
+
+    'controller' => env('PRIVACY_CONTROLLER') ?: null,
+
+    'contact_email' => env('PRIVACY_CONTACT_EMAIL') ?: null,
+
 ];
