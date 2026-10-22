@@ -135,6 +135,18 @@ class NewsSourcesTest extends TestCase
         $this->assertSame('world', $source->fresh()->category);
     }
 
+    public function test_adding_a_feed_that_is_down_asks_once_and_answers_at_once(): void
+    {
+        // The admin is waiting on the form and can try again: retrying inside the request only makes it slow.
+        Http::fake(['down.example.test/*' => Http::response('', 503)]);
+
+        $this->actingAs(User::factory()->admin()->create())
+            ->post('/admin/sources', ['name' => 'Down', 'feed_url' => 'https://down.example.test/rss.xml', 'category' => 'world'])
+            ->assertSessionHasErrors(['feed_url' => 'No RSS feed could be read at this URL.']);
+
+        Http::assertSentCount(1);
+    }
+
     public function test_feeds_that_cannot_be_read_are_rejected(): void
     {
         Http::fake([
