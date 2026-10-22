@@ -644,6 +644,38 @@ test('a 409 means the first upload of this turn is still being stored: the turn 
     assert.equal(calls, 2);
 });
 
+test('a 409 that names a code is an answer, not a turn on its way: nothing is stored, so nothing is waited for', async () => {
+    let calls = 0;
+    const send = async () => {
+        calls += 1;
+
+        throw Object.assign(new Error('Add your AI key in Settings → AI.'), { status: 409, code: 'ai_not_configured' });
+    };
+
+    await assert.rejects(uploadTurn('/api/debates/3/audio', new Blob(['audio']), 't1', send), { status: 409, code: 'ai_not_configured' });
+    assert.equal(calls, 1);
+});
+
+test('a turn without an AI key fails at once, with the message and a link to the AI settings', async () => {
+    const h = harness();
+    h.turns.press();
+    h.starts[0].resolve(true);
+    await flush();
+    h.turns.press();
+    await flush();
+
+    h.uploads[0].reject(Object.assign(new Error('Add your AI key in Settings → AI.'), { status: 409, code: 'ai_not_configured' }));
+    await flush();
+
+    assert.equal(h.store.state, 'idle');
+    assert.deepEqual(h.store.notice, {
+        tone: 'error',
+        text: 'Add your AI key in Settings → AI.',
+        links: [{ href: '/settings/ai', label: 'Open AI settings' }],
+    });
+    assert.equal(h.clock.pending, 0);
+});
+
 test('each turn uploads with its own id, chosen before the upload', async () => {
     const h = harness();
     await sendTurn(h);
