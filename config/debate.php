@@ -66,17 +66,18 @@ return [
     | Speech-to-Text, Tutor and Text-to-Speech Models
     |--------------------------------------------------------------------------
     |
-    | Providers are defined by the Laravel AI SDK. An empty model uses the
-    | provider's default. Examples: STT "groq" + "whisper-large-v3-turbo",
-    | TTS "eleven" with an ElevenLabs voice id.
+    | Each user pays for their own speech-to-text, tutor and voice with their own key
+    | (App\Services\Ai\AiConnections). The providers and models here are the platform's,
+    | used only by the calls the platform pays for and by a user who picked "platform"
+    | (App\Services\Ai\PlatformAi). An empty model uses the provider's default.
     |
     | Timeouts are in seconds, per request. Budget: a voice turn runs STT, then the
-    | tutor, then TTS (and the backup voice after a failed TTS) inside ProcessVoiceDebate,
-    | whose $timeout is 120. Its two broadcasts (config/broadcasting.php, 3 s each) and
-    | its own overhead count too, so see ProcessVoiceDebate::OVERHEAD_SECONDS. The fluency
-    | report runs DebateEvaluator inside EvaluateDebate, whose $timeout is 90, so its
-    | timeout must stay below that. The defaults add up to 119 for a voice turn (30 + 30 +
-    | 30 + 20 + 3 + 3 + 3 = 119) and 60 for the report.
+    | tutor, then TTS inside ProcessVoiceDebate, whose $timeout is 120. Its two
+    | broadcasts (config/broadcasting.php, 3 s each) and its own overhead count too, so
+    | see ProcessVoiceDebate::OVERHEAD_SECONDS. The fluency report runs DebateEvaluator
+    | inside EvaluateDebate, whose $timeout is 90, so its timeout must stay below that.
+    | The defaults add up to 99 for a voice turn (30 + 30 + 30 for the three calls, 3 + 3
+    | for the broadcasts and 3 of overhead) and 60 for the report.
     |
     */
 
@@ -101,12 +102,8 @@ return [
         'history_messages' => 30,
     ],
 
-    // Post-session fluency report. It is not real time, so it can use a slower model that
-    // reasons while the tutor uses a fast one. Empty values fall back to the tutor's provider
-    // and model; a provider of its own never inherits the tutor's model.
+    // Post-session fluency report: the learner's own connection for writing (the model they pick), with this timeout.
     'evaluator' => [
-        'provider' => env('DEBATE_EVAL_PROVIDER') ?: null,
-        'model' => env('DEBATE_EVAL_MODEL') ?: null,
         'timeout' => $positive('DEBATE_EVAL_TIMEOUT', 60),
         // The report reads the learner's latest turns only: at most this many, and at most this many characters
         // in all. Long debates stay cheap, and a retry of a long one cannot grow the bill.
@@ -119,16 +116,13 @@ return [
     | Guided Debate
     |--------------------------------------------------------------------------
     |
-    | The guided flow starts from a brief of the article (headline, what happened, why it matters, the two sides and
-    | the debate question), opens with that question, and reviews the learner's turns in writing. An admin turns it
-    | on per level on /admin/limits (app_settings guided_debate.B1, .B2, .C1); `levels` is the default until one is
-    | saved. A debate keeps the flow it started with.
+    | Every new debate is guided, at every level: it starts from a brief of the article (headline, what happened, why
+    | it matters, the two sides and the debate question), opens with that question, and reviews the learner's turns in
+    | writing. A debate keeps the flow it started with.
     |
     */
 
     'guided' => [
-        'levels' => array_values(array_filter(array_map('trim', explode(',', (string) env('DEBATE_GUIDED_LEVELS', 'B1'))))),
-
         // The brief is written once per article and level, in a single call. An empty provider uses the news
         // summariser's (config/news.php, ai), and so does an empty model when the provider is also empty; a provider
         // of its own never inherits the news model.
@@ -138,11 +132,9 @@ return [
             'timeout' => $positive('DEBATE_BRIEF_TIMEOUT', 60),
         ],
 
-        // The written corrections of one learner turn: a short call that runs beside the tutor's answer. Empty values
-        // fall back to the tutor's provider and model, as the fluency report does.
+        // The written corrections of one learner turn: a short call that runs beside the tutor's answer, on the learner's
+        // own connection for conversation.
         'review' => [
-            'provider' => env('DEBATE_REVIEW_PROVIDER') ?: null,
-            'model' => env('DEBATE_REVIEW_MODEL') ?: null,
             'timeout' => $positive('DEBATE_REVIEW_TIMEOUT', 30),
         ],
     ],
@@ -152,16 +144,6 @@ return [
         'model' => env('DEBATE_TTS_MODEL') ?: null,
         'voice' => env('DEBATE_TTS_VOICE', 'alloy'),
         'timeout' => $positive('DEBATE_TTS_TIMEOUT', 30),
-
-        // A second voice, used only when the main one fails (e.g. its provider is down). Another
-        // model needs another voice id, so it is configured on its own. No model: no backup. Its
-        // timeout counts towards the voice turn budget above, after the main TTS timeout.
-        'fallback' => [
-            'provider' => env('DEBATE_TTS_FALLBACK_PROVIDER') ?: env('DEBATE_TTS_PROVIDER', 'openai'),
-            'model' => env('DEBATE_TTS_FALLBACK_MODEL') ?: null,
-            'voice' => env('DEBATE_TTS_FALLBACK_VOICE', 'alloy'),
-            'timeout' => $positive('DEBATE_TTS_FALLBACK_TIMEOUT', 20),
-        ],
     ],
 
 ];

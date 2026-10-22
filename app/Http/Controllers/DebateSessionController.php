@@ -8,7 +8,9 @@ use App\Http\Resources\NewsArticleResource;
 use App\Jobs\EvaluateDebate;
 use App\Models\Debate;
 use App\Models\NewsArticle;
+use App\Services\Ai\AiCalls;
 use App\Services\AiBudget;
+use App\Services\AiBudgetUsedUp;
 use App\Services\Guided\DebateBriefs;
 use App\Services\Guided\DebateStarter;
 use Illuminate\Http\RedirectResponse;
@@ -55,11 +57,13 @@ class DebateSessionController extends Controller
     /**
      * Finish the debate and queue its fluency report (or retry a report that failed).
      */
-    public function finish(Request $request, Debate $debate, AiBudget $budget): RedirectResponse
+    public function finish(Request $request, Debate $debate, AiCalls $calls): RedirectResponse
     {
-        // The report is the paid call. It is taken from the budget before the debate is closed, so a refusal
-        // leaves the debate open for another try.
-        if (! $budget->spend($request->user())) {
+        // The report is the paid call. Its connection, the cap and the platform budget are checked before the debate is
+        // closed, so a refusal leaves the debate open for another try (a missing connection is answered under "ai").
+        try {
+            $calls->check($request->user(), 'writing');
+        } catch (AiBudgetUsedUp) {
             return back()->withErrors(['finish' => AiBudget::USED_UP_MESSAGE]);
         }
 

@@ -6,6 +6,9 @@ use App\Ai\Agents\NewsSummarizer;
 use App\Ai\QuotedText;
 use App\Models\NewsArticle;
 use App\Models\NewsSource;
+use App\Services\Ai\AiCalls;
+use App\Services\Ai\AiConnection;
+use App\Services\Ai\PlatformAi;
 use Carbon\CarbonInterface;
 use Closure;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -67,6 +70,8 @@ class NewsHarvester
     public function __construct(
         private readonly RssFeedReader $reader,
         private readonly ArticleTextExtractor $extractor,
+        private readonly AiCalls $calls,
+        private readonly PlatformAi $platform,
     ) {}
 
     /**
@@ -251,7 +256,13 @@ class NewsHarvester
         // The title and the page text are data, not instructions: their angle brackets are escaped (QuotedText), so
         // no marker can end the block early. The title sits inside the block with the text.
         $data = 'Title: '.QuotedText::escape($item->title)."\n\n".QuotedText::escape($text);
-        $response = NewsSummarizer::make()->prompt(self::TEXT_OPEN."\n{$data}\n".self::TEXT_CLOSE);
+        // The platform pays for the summaries, which are shared: no user is charged (see App\Services\Ai\AiCalls).
+        $response = $this->calls->call(
+            $this->platform->connection('writing'),
+            null,
+            fn (AiConnection $connection) => (new NewsSummarizer($connection))->prompt(self::TEXT_OPEN."\n{$data}\n".self::TEXT_CLOSE),
+            fn ($answer) => AiCalls::textUsage($answer),
+        );
 
         if (($response['is_article'] ?? false) !== true) {
             return null;

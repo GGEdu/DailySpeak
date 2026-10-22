@@ -7,7 +7,9 @@ use App\Ai\QuotedText;
 use App\Models\Debate;
 use App\Models\DebateBrief;
 use App\Models\NewsArticle;
-use App\Services\AiBudget;
+use App\Services\Ai\AiCalls;
+use App\Services\Ai\AiConnection;
+use App\Services\Ai\PlatformAi;
 use App\Services\AiBudgetUsedUp;
 use UnexpectedValueException;
 
@@ -35,11 +37,15 @@ class BriefWriter
 
     private const ARGUMENTS_MOST = 2;
 
-    public function __construct(private AiBudget $budget) {}
+    public function __construct(
+        private AiCalls $calls,
+        private PlatformAi $platform,
+    ) {}
 
     /**
-     * Write the brief and store it. The paid call is taken from the budget first, so a refusal throws
-     * App\Services\AiBudgetUsedUp before anything is sent.
+     * Write the brief and store it. The platform pays for it, so the platform's daily budget is taken first and a
+     * refusal throws App\Services\AiBudgetUsedUp before anything is sent (see App\Services\Ai\AiCalls::call()).
+     * The brief is shared by every debate on the article, at its level.
      *
      * @throws AiBudgetUsedUp
      * @throws UnexpectedValueException when the answer breaks a rule
@@ -49,15 +55,35 @@ class BriefWriter
         $article = $debate->newsArticle;
         $level = $debate->level ?? $debate->user->current_level;
 
-        $this->budget->spendOrFail($debate->user);
-
-        $answer = (new DebateBriefWriter($level))->prompt($this->prompt($article));
+        $answer = $this->calls->call(
+            $this->platform->connection('writing', $this->briefProvider(), $this->briefModel()),
+            $debate->user,
+            fn (AiConnection $connection) => (new DebateBriefWriter($level, $connection))->prompt($this->prompt($article)),
+            fn ($response) => AiCalls::textUsage($response),
+        );
         $fields = $this->check($answer, $article);
 
         return DebateBrief::query()->createOrFirst(
             ['news_article_id' => $article->id, 'level' => $level->value],
             $fields,
         );
+    }
+
+    /**
+     * The brief's own provider, or null for the news summariser's (the platform's writing connection).
+     */
+    private function briefProvider(): ?string
+    {
+        return config('debate.guided.brief.provider');
+    }
+
+    /**
+     * The brief's own model. Without a provider of its own, it inherits the news summariser's model.
+     */
+    private function briefModel(): ?string
+    {
+        return config('debate.guided.brief.model')
+            ?? (config('debate.guided.brief.provider') === null ? config('news.ai.model') : null);
     }
 
     /**

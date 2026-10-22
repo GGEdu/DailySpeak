@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Rules\VocabularySelection;
+use App\Services\Ai\AiCapReached;
+use App\Services\Ai\AiNotConfigured;
 use App\Services\AiBudget;
 use App\Services\AiBudgetUsedUp;
 use App\Services\Vocabulary\WordLookup;
@@ -15,7 +17,7 @@ use Throwable;
  */
 class WordLookupController extends Controller
 {
-    public function __invoke(Request $request, WordLookup $lookup, AiBudget $budget): JsonResponse
+    public function __invoke(Request $request, WordLookup $lookup): JsonResponse
     {
         $data = $request->validate([
             'text' => ['required', 'string', 'max:200', new VocabularySelection],
@@ -24,16 +26,19 @@ class WordLookupController extends Controller
 
         $text = WordLookup::normalise($data['text']);
 
-        // The call is taken from the budget only when the AI is asked: a refused request or a cached answer costs nothing.
+        // The asker's own connection pays, and only when the AI is asked: a cached answer costs nothing, and a refused
+        // request costs nothing either (AiNotConfigured answers 409 and AiCapReached 429, see bootstrap/app.php).
         try {
             $explanation = $lookup->explain(
                 $text,
                 $data['context'] ?? null,
                 $request->user()->current_level,
-                fn () => $budget->spendOrFail($request->user()),
+                $request->user(),
             );
         } catch (AiBudgetUsedUp) {
             return response()->json(['message' => AiBudget::USED_UP_MESSAGE], 429);
+        } catch (AiNotConfigured|AiCapReached $e) {
+            throw $e;
         } catch (Throwable $e) {
             report($e);
 

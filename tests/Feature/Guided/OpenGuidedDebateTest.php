@@ -110,19 +110,6 @@ class OpenGuidedDebateTest extends TestCase
             && $event->message->audioUrl() === null);
     }
 
-    public function test_the_backup_voice_speaks_the_opening_when_the_main_one_fails(): void
-    {
-        config(['debate.tts.fallback' => ['provider' => 'openai', 'model' => 'tts-backup', 'voice' => 'eve', 'timeout' => 20]]);
-        Audio::fake(fn (AudioPrompt $prompt) => $prompt->voice === 'eve'
-            ? base64_encode('backup-mp3')
-            : throw new RuntimeException('Main voice down'));
-
-        OpenGuidedDebate::dispatch($this->debate);
-
-        $opening = $this->debate->messages()->sole();
-        $this->assertSame('backup-mp3', Storage::disk('local')->get($opening->audio_path));
-    }
-
     public function test_nothing_opens_without_a_brief_or_in_a_finished_debate(): void
     {
         Audio::fake([base64_encode('never-used')]);

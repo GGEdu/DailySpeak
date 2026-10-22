@@ -9,6 +9,8 @@ use App\Events\DebateTurnFailed;
 use App\Events\UserTurnTranscribed;
 use App\Models\Debate;
 use App\Models\DebateMessage;
+use App\Services\Ai\AiCalls;
+use App\Services\Ai\AiConnection;
 use App\Services\Debate\TutorVoice;
 use DateTimeInterface;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -98,7 +100,7 @@ class ProcessVoiceDebate implements ShouldQueue
     /**
      * Execute the job.
      */
-    public function handle(TutorVoice $voice): void
+    public function handle(TutorVoice $voice, AiCalls $calls): void
     {
         // The debate may have been finished while this turn waited in the queue. Its report is already
         // written, so the turn is dropped: no message is added and no reply is sent.
@@ -111,7 +113,7 @@ class ProcessVoiceDebate implements ShouldQueue
 
         $startedAt = microtime(true);
 
-        [$turn, $sttMs] = Benchmark::value(fn () => $this->userTurn());
+        [$turn, $sttMs] = Benchmark::value(fn () => $this->userTurn($calls));
 
         if ($turn === null) {
             $this->discardRecording();
@@ -141,8 +143,8 @@ class ProcessVoiceDebate implements ShouldQueue
         // Show the user what was understood while the tutor is still thinking.
         rescue(fn () => UserTurnTranscribed::dispatch($turn));
 
-        [$reply, $llmMs] = Benchmark::value(fn () => $this->reply($turn));
-        [[$audioPath, $backupVoice], $ttsMs] = Benchmark::value(fn () => $voice->synthesise($this->debate, $reply, ['turn' => $this->turnId()]));
+        [$reply, $llmMs] = Benchmark::value(fn () => $this->reply($turn, $calls));
+        [$audioPath, $ttsMs] = Benchmark::value(fn () => $voice->synthesise($this->debate, $reply));
 
         $message = $this->debate->messages()->create([
             'role' => MessageRole::Assistant,
@@ -166,10 +168,6 @@ class ProcessVoiceDebate implements ShouldQueue
             'llm_ms' => (int) round($llmMs),
             'tts_ms' => (int) round($ttsMs),
             'total_ms' => (int) round((microtime(true) - $this->dispatchedAt) * 1000),
-            'stt' => config('debate.stt.provider'),
-            'llm' => config('debate.llm.provider').'/'.(config('debate.llm.model') ?? 'default'),
-            'tts' => config('debate.tts.provider'),
-            'tts_backup' => $backupVoice,
         ]));
     }
 
@@ -190,7 +188,7 @@ class ProcessVoiceDebate implements ShouldQueue
     /**
      * Transcribe the recording into a user message, reusing it if a previous attempt already did.
      */
-    private function userTurn(): ?DebateMessage
+    private function userTurn(AiCalls $calls): ?DebateMessage
     {
         $existing = $this->debate->messages()
             ->where('role', MessageRole::User)
@@ -201,11 +199,18 @@ class ProcessVoiceDebate implements ShouldQueue
             return $existing;
         }
 
-        $transcript = trim(Transcription::fromStorage($this->audioPath, config('debate.audio.disk'))
-            ->language(config('debate.stt.language'))
-            ->timeout(config('debate.stt.timeout'))
-            ->generate(config('debate.stt.provider'), config('debate.stt.model'))
-            ->text);
+        // The owner's own speech-to-text connection pays for the recording (see App\Services\Ai\AiCalls).
+        $answer = $calls->forUser(
+            $this->debate->user,
+            'stt',
+            fn (AiConnection $connection) => Transcription::fromStorage($this->audioPath, config('debate.audio.disk'))
+                ->language(config('debate.stt.language'))
+                ->timeout(config('debate.stt.timeout'))
+                ->generate($connection->providerName(), $connection->model),
+            fn ($response) => AiCalls::transcriptionUsage($response),
+        );
+
+        $transcript = trim($answer->text);
 
         if ($transcript === '') {
             return null;
@@ -230,7 +235,7 @@ class ProcessVoiceDebate implements ShouldQueue
      * Ask the tutor for its reply to the given turn. A retry after a failed synthesis reuses the reply
      * already produced, so it costs no second LLM call and the user gets the answer that was spoken.
      */
-    private function reply(DebateMessage $turn): string
+    private function reply(DebateMessage $turn, AiCalls $calls): string
     {
         $cached = Cache::get($this->replyCacheKey($turn));
 
@@ -238,8 +243,14 @@ class ProcessVoiceDebate implements ShouldQueue
             return $cached;
         }
 
-        $tutor = new DebateTutor($this->debate, $turn);
-        $reply = trim($tutor->prompt($tutor->question())->text);
+        // The owner's own connection for conversation pays for the tutor's answer.
+        $answer = $calls->forUser($this->debate->user, 'conversation', function (AiConnection $connection) use ($turn) {
+            $tutor = new DebateTutor($this->debate, $turn, $connection);
+
+            return $tutor->prompt($tutor->question());
+        }, fn ($response) => AiCalls::textUsage($response));
+
+        $reply = trim($answer->text);
 
         if ($reply === '') {
             throw new UnexpectedValueException('The tutor returned an empty reply.');

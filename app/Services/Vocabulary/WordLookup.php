@@ -4,7 +4,9 @@ namespace App\Services\Vocabulary;
 
 use App\Ai\Agents\WordExplainer;
 use App\Enums\EnglishLevel;
-use Closure;
+use App\Models\User;
+use App\Services\Ai\AiCalls;
+use App\Services\Ai\AiConnection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 use UnexpectedValueException;
@@ -14,29 +16,25 @@ use UnexpectedValueException;
  */
 class WordLookup
 {
+    public function __construct(private AiCalls $calls) {}
+
     /**
      * Explain the selection, caching the answer: the same selection in the same sentence
      * and at the same level always gets the same explanation.
      *
-     * $beforeAsking runs only when the AI is about to be called (a cache miss), so it can take that call from a
-     * budget, or throw to refuse it; whatever it throws is not cached.
+     * The asker's own connection pays only on a cache miss, when the AI is called. Whatever the call throws (a missing
+     * connection, a used-up cap) is not cached.
      *
      * @return array{translation: string, part_of_speech: string, definition: string, example: string, synonyms: list<string>}
      */
-    public function explain(string $text, ?string $context, EnglishLevel $level, ?Closure $beforeAsking = null): array
+    public function explain(string $text, ?string $context, EnglishLevel $level, User $asker): array
     {
         $text = self::normalise($text);
         $context = filled($context) ? Str::limit(self::squish($context), config('lookup.max_context_characters'), '') : null;
 
         $key = 'lookup:'.sha1(implode("\n", [mb_strtolower($text), (string) $context, $level->value, config('lookup.target_language')]));
 
-        return Cache::remember($key, now()->addDays(config('lookup.cache_days')), function () use ($text, $context, $level, $beforeAsking) {
-            if ($beforeAsking !== null) {
-                $beforeAsking();
-            }
-
-            return $this->ask($text, $context, $level);
-        });
+        return Cache::remember($key, now()->addDays(config('lookup.cache_days')), fn () => $this->ask($text, $context, $level, $asker));
     }
 
     /**
@@ -56,10 +54,15 @@ class WordLookup
     /**
      * @return array{translation: string, part_of_speech: string, definition: string, example: string, synonyms: list<string>}
      */
-    private function ask(string $text, ?string $context, EnglishLevel $level): array
+    private function ask(string $text, ?string $context, EnglishLevel $level, User $asker): array
     {
-        $response = (new WordExplainer($level))->prompt(
-            "Selected: {$text}".($context !== null ? "\nSentence: {$context}" : '')
+        $response = $this->calls->forUser(
+            $asker,
+            'conversation',
+            fn (AiConnection $connection) => (new WordExplainer($level, $connection))->prompt(
+                "Selected: {$text}".($context !== null ? "\nSentence: {$context}" : '')
+            ),
+            fn ($answer) => AiCalls::textUsage($answer),
         );
 
         $field = fn (string $key, int $limit) => Str::limit(trim((string) ($response[$key] ?? '')), $limit, '');

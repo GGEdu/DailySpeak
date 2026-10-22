@@ -38,6 +38,7 @@ class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->bind(HostResolver::class, DnsHostResolver::class);
+
     }
 
     /**
@@ -137,8 +138,7 @@ class AppServiceProvider extends ServiceProvider
     }
 
     /**
-     * A voice turn runs STT, the tutor, TTS, the backup voice, two broadcasts and the job's overhead inside
-     * ProcessVoiceDebate. When the request timeouts add up to the job's timeout, the job is killed mid-turn, so say so
+     * A voice turn runs STT, the tutor, TTS, two broadcasts and the job's overhead inside ProcessVoiceDebate. When the request timeouts add up to the job's timeout, the job is killed mid-turn, so say so
      * once an hour. The same sum is documented in config/debate.php.
      */
     private function warnAboutVoiceTurnBudget(): void
@@ -146,7 +146,6 @@ class AppServiceProvider extends ServiceProvider
         $budget = (float) config('debate.stt.timeout')
             + (float) config('debate.llm.timeout')
             + (float) config('debate.tts.timeout')
-            + (float) config('debate.tts.fallback.timeout')
             + 2 * (float) config('broadcasting.connections.reverb.client_options.timeout')
             + ProcessVoiceDebate::OVERHEAD_SECONDS;
 

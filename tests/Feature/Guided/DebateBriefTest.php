@@ -301,14 +301,15 @@ class DebateBriefTest extends TestCase
         $this->assertStringEndsWith(':debate-brief:'.$debate->news_article_id.':B1', $middleware->getLockKey(new PrepareDebateBrief($debate)));
     }
 
-    public function test_a_classic_debate_never_prepares_a_brief(): void
+    public function test_a_user_without_a_connection_cannot_start_a_debate_and_nothing_is_queued(): void
     {
         Queue::fake();
-        $user = User::factory()->level(EnglishLevel::B2)->create();
+        $user = User::factory()->level(EnglishLevel::B2)->withoutAi()->create();
 
-        $this->actingAs($user)->post(route('debates.start', $this->article()))->assertRedirect();
+        $this->actingAs($user)->post(route('debates.start', $this->article()))->assertSessionHasErrors('ai');
 
         Queue::assertNothingPushed();
+        $this->assertSame(0, Debate::query()->count());
     }
 
     private function briefStatus(Debate $debate): ?string
