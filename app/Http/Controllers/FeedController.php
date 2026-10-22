@@ -6,6 +6,7 @@ use App\Enums\DebateStatus;
 use App\Http\Resources\NewsArticleResource;
 use App\Models\NewsArticle;
 use App\Models\NewsSource;
+use App\Services\Limits;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
@@ -25,14 +26,9 @@ class FeedController extends Controller
     private const SEARCH_MAX_LENGTH = 100;
 
     /**
-     * Searches one user may run per minute. Every pause while typing is a search.
-     */
-    private const SEARCHES_PER_MINUTE = 30;
-
-    /**
      * Show the latest harvested news, or the stories matching a search, ready to be debated.
      */
-    public function __invoke(Request $request): Response
+    public function __invoke(Request $request, Limits $limits): Response
     {
         $search = $this->searchTerm($request);
         $categories = $this->categoriesWithArticles();
@@ -41,7 +37,7 @@ class FeedController extends Controller
 
         $articles = $search === ''
             ? $this->latest($category)
-            : $this->search($request, $search);
+            : $this->search($request, $search, $limits);
         $articles->loadMissing('newsSource');
 
         $debates = $request->user()->debates()
@@ -130,10 +126,10 @@ class FeedController extends Controller
      *
      * @return Collection<int, NewsArticle>
      */
-    private function search(Request $request, string $search): Collection
+    private function search(Request $request, string $search, Limits $limits): Collection
     {
         // Each search can reach the engine and the database, so one user cannot run them without limit.
-        if (! RateLimiter::attempt('feed-search:'.$request->user()->id, self::SEARCHES_PER_MINUTE, fn () => true)) {
+        if (! RateLimiter::attempt('feed-search:'.$request->user()->id, $limits->value('feed_searches_per_minute'), fn () => true)) {
             abort(429);
         }
 

@@ -42,6 +42,7 @@ onBeforeUnmount(stopLogoutListener);
                         <span v-if="dueWords" class="sr-only">, {{ dueWords }} due for review</span>
                     </Link>
                     <Link v-if="user.is_admin" href="/admin/sources" class="inline-flex min-h-6 items-center text-ink-400 transition hover:text-ink-100">Sources</Link>
+                    <Link v-if="user.is_admin" href="/admin/limits" class="inline-flex min-h-6 items-center text-ink-400 transition hover:text-ink-100">Limits</Link>
                     <Link
                         href="/settings"
                         class="inline-flex min-h-6 items-center rounded-full border border-white/10 px-2.5 py-0.5 text-xs font-medium text-ink-300 transition hover:border-white/20 hover:text-ink-100"

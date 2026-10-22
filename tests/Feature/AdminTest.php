@@ -6,7 +6,6 @@ use App\Models\Debate;
 use App\Models\NewsArticle;
 use App\Models\NewsSource;
 use App\Models\User;
-use App\Providers\AppServiceProvider;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Gate;
@@ -23,9 +22,9 @@ class AdminTest extends TestCase
     {
         $debate = $this->debateFor(User::factory()->create());
 
-        $statuses = $this->uploadTurns($debate, AppServiceProvider::AUDIO_UPLOADS_PER_MINUTE + 1);
+        $statuses = $this->uploadTurns($debate, config('limits.voice_turns_per_minute') + 1);
 
-        $this->assertSame(array_fill(0, AppServiceProvider::AUDIO_UPLOADS_PER_MINUTE, 202), array_slice($statuses, 0, -1));
+        $this->assertSame(array_fill(0, config('limits.voice_turns_per_minute'), 202), array_slice($statuses, 0, -1));
         $this->assertSame(429, last($statuses));
     }
 
@@ -33,7 +32,7 @@ class AdminTest extends TestCase
     {
         $debate = $this->debateFor(User::factory()->admin()->create());
 
-        $statuses = $this->uploadTurns($debate, AppServiceProvider::AUDIO_UPLOADS_PER_MINUTE + 5);
+        $statuses = $this->uploadTurns($debate, config('limits.voice_turns_per_minute') + 5);
 
         $this->assertSame([202], array_values(array_unique($statuses)));
     }

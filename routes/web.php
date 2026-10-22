@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AccountController;
+use App\Http\Controllers\Admin\LimitsController;
 use App\Http\Controllers\Admin\NewsSourceController;
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\Auth\EmailVerificationController;
@@ -96,4 +97,8 @@ Route::middleware(['auth', 'verified', 'can:admin'])->prefix('admin')->name('adm
     Route::patch('/sources/{source}', [NewsSourceController::class, 'update'])->name('sources.update');
     Route::delete('/sources/{source}', [NewsSourceController::class, 'destroy'])->name('sources.destroy');
     Route::post('/sources/{source}/fetch', [NewsSourceController::class, 'fetch'])->name('sources.fetch');
+
+    Route::get('/limits', [LimitsController::class, 'index'])->name('limits.index');
+    Route::put('/limits/{key}', [LimitsController::class, 'update'])->name('limits.update');
+    Route::post('/limits/{key}/reset', [LimitsController::class, 'reset'])->name('limits.reset');
 });

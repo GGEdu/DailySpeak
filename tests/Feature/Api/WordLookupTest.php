@@ -5,7 +5,6 @@ namespace Tests\Feature\Api;
 use App\Ai\Agents\WordExplainer;
 use App\Enums\EnglishLevel;
 use App\Models\User;
-use App\Providers\AppServiceProvider;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Ai\Prompts\AgentPrompt;
 use Laravel\Sanctum\Sanctum;
@@ -134,7 +133,7 @@ class WordLookupTest extends TestCase
         Sanctum::actingAs(User::factory()->create());
 
         // Cached after the first one, so only the limiter can stop them.
-        for ($i = 0; $i < AppServiceProvider::LOOKUPS_PER_MINUTE; $i++) {
+        for ($i = 0; $i < config('limits.lookups_per_minute'); $i++) {
             $this->postJson('/api/lookups', ['text' => 'nuance'])->assertOk();
         }
         $this->postJson('/api/lookups', ['text' => 'nuance'])->assertTooManyRequests();
@@ -149,8 +148,8 @@ class WordLookupTest extends TestCase
         Sanctum::actingAs(User::factory()->create());
 
         // Pause between minutes so the per-minute limit never applies: only the daily cap can stop the last lookup.
-        for ($i = 0; $i < AppServiceProvider::LOOKUPS_PER_DAY; $i++) {
-            if ($i > 0 && $i % AppServiceProvider::LOOKUPS_PER_MINUTE === 0) {
+        for ($i = 0; $i < config('limits.lookups_per_day'); $i++) {
+            if ($i > 0 && $i % config('limits.lookups_per_minute') === 0) {
                 $this->travel(2)->minutes();
             }
 

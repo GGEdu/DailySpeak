@@ -179,6 +179,23 @@ class AiDailyBudgetTest extends TestCase
         Log::shouldHaveReceived('critical')->once();
     }
 
+    public function test_the_daily_budget_starts_again_at_midnight(): void
+    {
+        config(['limits.ai_daily_global' => 1]);
+        $budget = app(AiBudget::class);
+        $user = User::factory()->create();
+
+        $this->assertTrue($budget->spend($user));
+        $this->assertFalse($budget->spend($user));
+        $this->assertSame(1, $budget->usedToday());
+        $this->assertTrue($budget->resetsAt()->equalTo(now()->addDay()->startOfDay()));
+
+        $this->travelTo(now()->addDay()->startOfDay()->addHour());
+
+        $this->assertSame(0, $budget->usedToday());
+        $this->assertTrue($budget->spend($user));
+    }
+
     public function test_admins_are_not_counted_against_the_budget(): void
     {
         config(['limits.ai_daily_global' => 1]);
