@@ -120,6 +120,26 @@ Las rutas de la API usan Sanctum (`auth:sanctum`) y exigen el correo verificado:
 
 El system prompt del tutor está en `config/prompts.php` (`debate_tutor`).
 
+### Debate guiado
+
+Un debate guiado (por nivel, desde **/admin/limits** → «Guided debate»; por defecto solo B1,
+`DEBATE_GUIDED_LEVELS`) cambia el arranque y el feedback, no el turno de voz:
+
+1. **Resumen del debate**, con estructura fija y en el nivel del alumno: Headline, What happened, Why it matters,
+   Background (solo lo que dice el artículo; si no hay, no aparece), Two sides, The debate question y Key words. Se
+   genera la primera vez que alguien debate ese artículo en ese nivel (tabla `debate_briefs`) a partir del resumen
+   guardado, sin volver a descargar la página, y se reutiliza (`DEBATE_BRIEF_PROVIDER`/`_MODEL`; por defecto los del
+   resumen de noticias).
+2. **Apertura:** el tutor habla primero, con el encuadre y la pregunta del debate (`TutorOpened`).
+3. **Turno del tutor**, 3 frases como mucho: reformula bien lo que dijo el alumno, pone un contrapunto sin dar aún su
+   postura y termina con una pregunta; si el alumno pregunta qué significa algo, lo explica y vuelve al debate.
+4. **Correcciones solo por escrito:** bajo cada intervención del alumno, hasta 2 de alta confianza, generadas en
+   paralelo sin retrasar la voz (`LearnerTurnReviewed`, `DEBATE_REVIEW_PROVIDER`/`_MODEL`). Se descartan con «I didn't
+   say that»; las que no, entran en el informe final.
+
+Cada debate guarda su flujo (`debates.flow`): cambiar el ajuste no afecta a los que están en curso. El resumen y la
+revisión de cada turno gastan del tope diario de IA. El análisis del diseño está en `docs/diseno-flujo-debate.md`.
+
 ### Latencia
 
 Cada turno respondido deja en el log una línea `Voice turn answered.` con el desglose en milisegundos: `queue_ms` (espera en la cola), `stt_ms`, `llm_ms`, `tts_ms` y `total_ms` (desde que se subió el audio hasta que la réplica está lista):
