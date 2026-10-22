@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\ApiSecurityHeaders;
 use App\Http\Middleware\HandleInertiaRequests;
 use App\Http\Middleware\SecurityHeaders;
 use Illuminate\Foundation\Application;
@@ -23,6 +24,11 @@ return Application::configure(basePath: dirname(__DIR__))
 
         // A password change (including a reset) signs out the sessions that were open with the old one.
         $middleware->authenticateSessions();
+
+        // JSON gets the headers that apply to it (no page policy), also on errors.
+        $middleware->api(prepend: [
+            ApiSecurityHeaders::class,
+        ]);
 
         $middleware->web(prepend: [
             SecurityHeaders::class,

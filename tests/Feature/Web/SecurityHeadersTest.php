@@ -3,15 +3,20 @@
 namespace Tests\Feature\Web;
 
 use App\Http\Middleware\SecurityHeaders;
+use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Foundation\Vite as ViteInstance;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Vite;
 use Illuminate\Testing\TestResponse;
+use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
 class SecurityHeadersTest extends TestCase
 {
+    use RefreshDatabase;
+
     public function test_every_page_sends_the_hardening_headers(): void
     {
         $this->get('/login')
@@ -20,6 +25,27 @@ class SecurityHeadersTest extends TestCase
             ->assertHeader('X-Content-Type-Options', 'nosniff')
             ->assertHeader('Referrer-Policy', 'strict-origin-when-cross-origin')
             ->assertHeader('Permissions-Policy', 'microphone=(self), camera=(), geolocation=()');
+    }
+
+    public function test_api_responses_send_the_headers_that_mean_something_for_json(): void
+    {
+        Sanctum::actingAs(User::factory()->create());
+
+        $this->getJson('/api/user')
+            ->assertOk()
+            ->assertHeader('X-Frame-Options', 'DENY')
+            ->assertHeader('X-Content-Type-Options', 'nosniff')
+            ->assertHeader('Referrer-Policy', 'strict-origin-when-cross-origin')
+            // The page policy is for HTML: JSON gets no nonce-based script policy.
+            ->assertHeaderMissing('Content-Security-Policy');
+    }
+
+    public function test_api_errors_send_the_api_headers_too(): void
+    {
+        $this->getJson('/api/user')
+            ->assertUnauthorized()
+            ->assertHeader('X-Frame-Options', 'DENY')
+            ->assertHeader('X-Content-Type-Options', 'nosniff');
     }
 
     public function test_scripts_need_the_vite_nonce_and_the_page_may_only_load_from_this_origin(): void
