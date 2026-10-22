@@ -7,7 +7,11 @@ use App\Ai\QuotedText;
 use App\Enums\MessageRole;
 use App\Models\Debate;
 use App\Models\DebateMessage;
-use App\Services\AiBudget;
+use App\Services\Ai\AiCalls;
+use App\Services\Ai\AiCapReached;
+use App\Services\Ai\AiConnection;
+use App\Services\Ai\AiNotConfigured;
+use App\Services\AiBudgetUsedUp;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -26,11 +30,11 @@ class LearnerCorrections
 
     private const MAX_NOTE_CHARACTERS = 200;
 
-    public function __construct(private AiBudget $budget) {}
+    public function __construct(private AiCalls $calls) {}
 
     /**
-     * The corrections of the turn, checked, as stored: nothing when the budget is used up or the review fails. Each
-     * one is a call of the daily AI budget, taken before it is made.
+     * The corrections of the turn, checked, as stored: nothing when the owner cannot pay for the review (no connection,
+     * the cap, the budget) or the review fails.
      *
      * @return list<array{original: string, better: string, note: ?string, dismissed: bool}>
      */
@@ -38,15 +42,24 @@ class LearnerCorrections
     {
         $debate = $turn->debate;
 
-        if (! $this->budget->spend($debate->user)) {
-            return [];
-        }
-
         try {
             $level = $debate->level ?? $debate->user->current_level;
-            $answer = (new LearnerTurnReviewer($level))->prompt($this->prompt($turn->transcript));
+            $answer = $this->calls->forUser(
+                $debate->user,
+                'conversation',
+                fn (AiConnection $connection) => (new LearnerTurnReviewer($level, $connection))->prompt($this->prompt($turn->transcript)),
+                fn ($response) => AiCalls::textUsage($response),
+            );
 
             return $this->check($answer, $turn->transcript);
+        } catch (AiNotConfigured|AiCapReached|AiBudgetUsedUp $e) {
+            Log::info('The learner turn review was not made: its owner cannot pay for it now.', [
+                'debate_id' => $debate->getKey(),
+                'message_id' => $turn->getKey(),
+                'reason' => $e::class,
+            ]);
+
+            return [];
         } catch (Throwable $e) {
             report($e);
             Log::warning('The learner turn review failed; the turn has no corrections.', [

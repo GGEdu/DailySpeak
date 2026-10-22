@@ -7,6 +7,8 @@ use App\Enums\DebateStatus;
 use App\Models\Debate;
 use App\Models\NewsArticle;
 use App\Models\User;
+use App\Services\Ai\AiCalls;
+use App\Services\Ai\AiConnections;
 
 /**
  * Starts a debate about an article, or resumes the user's active one. Every new debate is guided: it starts from a brief
@@ -14,7 +16,11 @@ use App\Models\User;
  */
 class DebateStarter
 {
-    public function __construct(private DebateBriefs $briefs) {}
+    public function __construct(
+        private DebateBriefs $briefs,
+        private AiConnections $connections,
+        private AiCalls $calls,
+    ) {}
 
     public function start(User $user, NewsArticle $article): Debate
     {
@@ -26,6 +32,11 @@ class DebateStarter
         if ($existing = $user->debates()->where($active)->first()) {
             return $existing;
         }
+
+        // A new debate needs the user's own connections for speech, the tutor and the voice, and room under their cap.
+        // Resuming one costs nothing, so it is not refused (AiNotConfigured answers 409, AiCapReached 429).
+        $this->connections->forUserTasks($user, ['stt', 'conversation', 'tts']);
+        $this->calls->assertWithinCap($user);
 
         // The brief is written at the level the debate starts at; the debate keeps that level.
         $debate = $user->debates()->createOrFirst($active, [

@@ -88,9 +88,7 @@ class OpenGuidedDebate implements ShouldQueue
     private function speak(TutorVoice $voice, Debate $debate, string $text): ?string
     {
         try {
-            [$path] = $voice->synthesise($debate, $text);
-
-            return $path;
+            return $voice->synthesise($debate, $text);
         } catch (Throwable $e) {
             report($e);
 

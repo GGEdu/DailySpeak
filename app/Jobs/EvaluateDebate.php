@@ -7,6 +7,8 @@ use App\Enums\MessageRole;
 use App\Events\DebateEvaluated;
 use App\Events\DebateEvaluationFailed;
 use App\Models\Debate;
+use App\Services\Ai\AiCalls;
+use App\Services\Ai\AiConnection;
 use App\Services\Guided\LearnerCorrections;
 use App\Services\Vocabulary\WordLookup;
 use DateTimeInterface;
@@ -102,7 +104,7 @@ class EvaluateDebate implements ShouldBeUnique, ShouldQueue
     /**
      * Execute the job.
      */
-    public function handle(LearnerCorrections $corrections): void
+    public function handle(LearnerCorrections $corrections, AiCalls $calls): void
     {
         // A report is written once. A duplicate that got past the unique lock, or a retry queued after the
         // report was already saved, must not pay for a second evaluation.
@@ -113,7 +115,7 @@ class EvaluateDebate implements ShouldBeUnique, ShouldQueue
         }
 
         $turns = $this->recentTurns();
-        $feedback = $turns->isEmpty() ? self::EMPTY_FEEDBACK : $this->evaluate($turns);
+        $feedback = $turns->isEmpty() ? self::EMPTY_FEEDBACK : $this->evaluate($turns, $calls);
 
         // The corrections written during the debate are part of its report, beside the evaluator's own.
         $feedback['grammar_errors'] = $corrections->mergeIntoReport($this->debate, $feedback['grammar_errors']);
@@ -192,19 +194,23 @@ class EvaluateDebate implements ShouldBeUnique, ShouldQueue
      * @param  Collection<int, string>  $turns
      * @return array{crutch_words: list<string>, grammar_errors: list<array{error: string, correction: string}>, recommended_vocabulary: list<array{word: string, context: string}>}
      */
-    private function evaluate(Collection $turns): array
+    private function evaluate(Collection $turns, AiCalls $calls): array
     {
         $transcript = $turns->map(fn (string $turn, int $index) => ($index + 1).'. '.$turn)->implode("\n");
 
         return Cache::remember(
             'debate-evaluation:'.$this->debate->getKey().':'.sha1($transcript),
             now()->addMinutes(self::ANSWER_CACHE_MINUTES),
-            function () use ($transcript) {
-                $feedback = $this->clean(
-                    (new DebateEvaluator($this->debate->user->current_level))->prompt(
+            function () use ($transcript, $calls) {
+                // The learner's own connection for writing pays for the report (see App\Services\Ai\AiCalls).
+                $feedback = $this->clean($calls->forUser(
+                    $this->debate->user,
+                    'writing',
+                    fn (AiConnection $connection) => (new DebateEvaluator($this->debate->user->current_level, $connection))->prompt(
                         "Debate topic: {$this->debate->newsArticle->title}\n\nLearner's turns:\n{$transcript}"
-                    )
-                );
+                    ),
+                    fn ($response) => AiCalls::textUsage($response),
+                ));
 
                 if ($feedback['crutch_words'] === [] && $feedback['grammar_errors'] === [] && $feedback['recommended_vocabulary'] === []) {
                     throw new UnexpectedValueException('The evaluator returned no usable feedback.');
