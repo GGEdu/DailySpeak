@@ -1,7 +1,7 @@
 <?php
 
 use App\Http\Controllers\AccountController;
-use App\Http\Controllers\ConsentController;
+use App\Http\Controllers\Admin\LimitsController;
 use App\Http\Controllers\Admin\NewsSourceController;
 use App\Http\Controllers\Auth\AltchaChallengeController;
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
@@ -9,6 +9,7 @@ use App\Http\Controllers\Auth\EmailVerificationController;
 use App\Http\Controllers\Auth\NewPasswordController;
 use App\Http\Controllers\Auth\PasswordResetLinkController;
 use App\Http\Controllers\Auth\RegisteredUserController;
+use App\Http\Controllers\ConsentController;
 use App\Http\Controllers\DebateSessionController;
 use App\Http\Controllers\FeedController;
 use App\Http\Controllers\PrivacyController;
@@ -111,4 +112,8 @@ Route::middleware(['auth', 'verified', 'can:admin'])->prefix('admin')->name('adm
     Route::patch('/sources/{source}', [NewsSourceController::class, 'update'])->name('sources.update');
     Route::delete('/sources/{source}', [NewsSourceController::class, 'destroy'])->name('sources.destroy');
     Route::post('/sources/{source}/fetch', [NewsSourceController::class, 'fetch'])->name('sources.fetch');
+
+    Route::get('/limits', [LimitsController::class, 'index'])->name('limits.index');
+    Route::put('/limits/{key}', [LimitsController::class, 'update'])->name('limits.update');
+    Route::post('/limits/{key}/reset', [LimitsController::class, 'reset'])->name('limits.reset');
 });

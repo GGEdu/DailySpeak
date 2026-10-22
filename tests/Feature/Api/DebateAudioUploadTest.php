@@ -6,7 +6,6 @@ use App\Jobs\ProcessVoiceDebate;
 use App\Models\Debate;
 use App\Models\DebateMessage;
 use App\Models\User;
-use App\Providers\AppServiceProvider;
 use Illuminate\Contracts\Bus\Dispatcher;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -170,7 +169,7 @@ class DebateAudioUploadTest extends TestCase
         Sanctum::actingAs($this->user);
         $audio = fn () => ['audio' => UploadedFile::fake()->create('turn.webm', 10, 'audio/webm')];
 
-        for ($i = 0; $i < AppServiceProvider::AUDIO_UPLOADS_PER_MINUTE; $i++) {
+        for ($i = 0; $i < config('limits.voice_turns_per_minute'); $i++) {
             $this->post($this->url(), $audio())->assertAccepted();
         }
 

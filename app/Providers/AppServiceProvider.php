@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use App\Jobs\ProcessVoiceDebate;
 use App\Models\User;
+use App\Services\Limits;
 use App\Services\News\DnsHostResolver;
 use App\Services\News\HostResolver;
 use Illuminate\Cache\RateLimiting\Limit;
@@ -20,26 +21,6 @@ use ReflectionProperty;
 
 class AppServiceProvider extends ServiceProvider
 {
-    /**
-     * Voice turns a regular user may upload per minute (each one costs STT + LLM + TTS).
-     */
-    public const AUDIO_UPLOADS_PER_MINUTE = 20;
-
-    /**
-     * Word lookups and saves a user may make per minute (a lookup may cost an LLM call).
-     */
-    public const LOOKUPS_PER_MINUTE = 40;
-
-    /**
-     * Daily cap on the same, so one account cannot run up the AI bill.
-     */
-    public const LOOKUPS_PER_DAY = 500;
-
-    /**
-     * Debate reports a user may ask for per minute: each one is a paid evaluation.
-     */
-    public const DEBATE_FINISHES_PER_MINUTE = 5;
-
     /**
      * Sign-in attempts for one email from one address per minute, on top of the per-address limit.
      */
@@ -77,22 +58,25 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('login', fn (Request $request) => Limit::perMinute(self::LOGINS_PER_EMAIL_AND_ADDRESS_PER_MINUTE)
             ->by('login:'.$this->loginEmail($request).'|'.$request->ip()));
 
-        RateLimiter::for('register', fn (Request $request) => Limit::perDay(max(1, (int) config('limits.registrations_per_ip_per_day')))
+        // The limits an admin can change (App\Services\Limits) are read per request, so a change applies at once.
+        $limits = $this->app->make(Limits::class);
+
+        RateLimiter::for('register', fn (Request $request) => Limit::perDay($limits->value('registrations_per_ip_per_day'))
             ->by('register:'.$request->ip()));
 
-        RateLimiter::for('lookups', function (Request $request) {
+        RateLimiter::for('lookups', function (Request $request) use ($limits) {
             $who = $request->user()?->id ?: $request->ip();
 
             return [
-                Limit::perMinute(self::LOOKUPS_PER_MINUTE)->by('minute:'.$who),
-                Limit::perDay(self::LOOKUPS_PER_DAY)->by('day:'.$who),
+                Limit::perMinute($limits->value('lookups_per_minute'))->by('minute:'.$who),
+                Limit::perDay($limits->value('lookups_per_day'))->by('day:'.$who),
             ];
         });
 
-        RateLimiter::for('debate-finish', fn (Request $request) => Limit::perMinute(self::DEBATE_FINISHES_PER_MINUTE)
+        RateLimiter::for('debate-finish', fn (Request $request) => Limit::perMinute($limits->value('debate_finishes_per_minute'))
             ->by('finish:'.($request->user()?->id ?: $request->ip())));
 
-        RateLimiter::for('debate-audio', function (Request $request) {
+        RateLimiter::for('debate-audio', function (Request $request) use ($limits) {
             if ($request->user()?->is_admin) {
                 return Limit::none();
             }
@@ -100,12 +84,12 @@ class AppServiceProvider extends ServiceProvider
             $who = $request->user()?->id ?: $request->ip();
 
             return [
-                Limit::perMinute(self::AUDIO_UPLOADS_PER_MINUTE)
+                Limit::perMinute($limits->value('voice_turns_per_minute'))
                     ->by('minute:'.$who)
                     ->response(fn (Request $request, array $headers) => response()->json([
                         'message' => 'You are sending voice turns too fast. Wait a moment and try again.',
                     ], 429, $headers)),
-                Limit::perDay((int) config('debate.audio.daily_turns'))
+                Limit::perDay($limits->value('voice_turns_per_day'))
                     ->by('day:'.$who)
                     ->response(fn (Request $request, array $headers) => response()->json([
                         'message' => "You have reached today's limit of voice turns. Try again later.",

@@ -3,6 +3,7 @@
 namespace App\Services\Privacy;
 
 use Illuminate\Contracts\Filesystem\Filesystem;
+use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -30,7 +31,14 @@ class AudioFiles
 
         try {
             if (! $disk->exists($path)) {
-                return self::MISSING;
+                // exists() is false too when the file cannot be reached; only a reachable place is really empty.
+                $blocked = $this->unreachable($disk, $path);
+
+                if ($blocked === null) {
+                    return self::MISSING;
+                }
+
+                throw new \RuntimeException($blocked);
             }
 
             $disk->delete($path);
@@ -48,6 +56,34 @@ class AudioFiles
         ]);
 
         return self::FAILED;
+    }
+
+    /**
+     * Why a path the disk says is not there may still be on it: the disk root is missing (a volume that is not
+     * mounted) or a directory on the way cannot be read. Null when the absence is real. Only local disks are
+     * checked; for the others exists() is taken at its word.
+     */
+    private function unreachable(Filesystem $disk, string $path): ?string
+    {
+        if (! $disk instanceof FilesystemAdapter || ($disk->getConfig()['driver'] ?? null) !== 'local') {
+            return null;
+        }
+
+        $root = rtrim($disk->path(''), '/');
+
+        if (! is_dir($root)) {
+            return 'the disk root is not there (is the volume mounted?)';
+        }
+
+        // Walk up from the file's directory to the first one that exists (a directory that cannot be read hides
+        // everything under it): that one has to be readable for the absence to be real.
+        $directory = dirname($disk->path($path));
+
+        while (strlen($directory) > strlen($root) && ! file_exists($directory)) {
+            $directory = dirname($directory);
+        }
+
+        return is_readable($directory) && is_executable($directory) ? null : "{$directory} cannot be read";
     }
 
     /**
