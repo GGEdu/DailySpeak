@@ -182,6 +182,22 @@ class NewsSourcesTest extends TestCase
         $this->assertNull($article->fresh()->news_source_id);
     }
 
+    public function test_fetch_now_says_when_a_fetch_is_already_queued_or_running(): void
+    {
+        // The job is unique per source: a second dispatch is dropped, and the admin must be told that.
+        Queue::fake();
+        $source = NewsSource::sole();
+
+        $this->actingAs($this->admin)->post("/admin/sources/{$source->id}/fetch")
+            ->assertSessionHas('status', fn (string $status) => str_starts_with($status, 'Fetching BBC News – World… '));
+        $this->actingAs($this->admin)->post("/admin/sources/{$source->id}/fetch")
+            ->assertSessionHas('status', 'BBC News – World is already being fetched. Its new articles will appear in the feed as they are summarised.');
+
+        Queue::assertPushedTimes(FetchNewsSource::class, 1);
+        // The lock travels with the job, so the worker releases it when the fetch ends.
+        Queue::assertPushedOn('news', FetchNewsSource::class, fn (FetchNewsSource $job) => is_string($job->uniqueLockOwner) && $job->uniqueLockOwner !== '');
+    }
+
     public function test_regular_users_cannot_manage_sources(): void
     {
         $user = User::factory()->create();

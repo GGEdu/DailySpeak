@@ -7,8 +7,10 @@ use App\Http\Requests\StoreNewsSourceRequest;
 use App\Jobs\FetchNewsSource;
 use App\Models\NewsSource;
 use App\Services\News\SourceUsagePolicy;
+use Illuminate\Bus\UniqueLock;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -94,9 +96,18 @@ class NewsSourceController extends Controller
     /**
      * Harvest a single source now, on its own queue (see FetchNewsSource for why it is not `news:fetch`).
      */
-    public function fetch(NewsSource $source): RedirectResponse
+    public function fetch(NewsSource $source, UniqueLock $unique): RedirectResponse
     {
-        FetchNewsSource::dispatch($source->id);
+        $job = new FetchNewsSource($source->id);
+
+        // The job is unique per source: a plain dispatch made while one is queued or running is dropped without a
+        // word. Taking the job's lock here says whether this click queued a fetch. The job is then sent to the
+        // queue directly, because the lock is already held for it.
+        if (! $unique->acquire($job)) {
+            return back()->with('status', "{$source->name} is already being fetched. Its new articles will appear in the feed as they are summarised.");
+        }
+
+        Bus::dispatch($job);
 
         return back()->with('status', "Fetching {$source->name}… new articles will appear in the feed as they are summarised.");
     }
