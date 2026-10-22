@@ -2,7 +2,9 @@
 
 namespace Database\Factories;
 
+use App\Enums\DebateFlow;
 use App\Enums\DebateStatus;
+use App\Enums\EnglishLevel;
 use App\Models\Debate;
 use App\Models\NewsArticle;
 use App\Models\User;
@@ -24,10 +26,23 @@ class DebateFactory extends Factory
             'user_id' => User::factory(),
             'news_article_id' => NewsArticle::factory(),
             'status' => DebateStatus::Active,
+            'flow' => DebateFlow::Classic,
+            'level' => null,
             'ai_feedback' => null,
             'started_at' => now(),
             'ended_at' => null,
         ];
+    }
+
+    /**
+     * Indicate that the debate runs the guided flow, at the given level (the level its brief is for).
+     */
+    public function guided(EnglishLevel $level = EnglishLevel::B1): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'flow' => DebateFlow::Guided,
+            'level' => $level,
+        ]);
     }
 
     /**

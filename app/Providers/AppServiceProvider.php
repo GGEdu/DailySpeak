@@ -76,6 +76,10 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('debate-finish', fn (Request $request) => Limit::perMinute($limits->value('debate_finishes_per_minute'))
             ->by('finish:'.($request->user()?->id ?: $request->ip())));
 
+        // Retries of a guided debate's brief: each one is a paid call.
+        RateLimiter::for('debate-brief', fn (Request $request) => Limit::perMinute(5)
+            ->by('brief:'.($request->user()?->id ?: $request->ip())));
+
         RateLimiter::for('debate-audio', function (Request $request) use ($limits) {
             if ($request->user()?->is_admin) {
                 return Limit::none();

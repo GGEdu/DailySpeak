@@ -9,12 +9,17 @@ const props = defineProps({
     limits: { type: Array, required: true },
     // Today's calls from the shared AI budget, and when the count starts again.
     aiBudget: { type: Object, required: true },
+    // One switch per English level, from App\Services\Guided\GuidedSettings::overview().
+    guidedDebate: { type: Array, required: true },
 });
 
 // One form per limit, so a refused value is reported on its own row. The input holds text, as typed.
 const forms = Object.fromEntries(props.limits.map((limit) => [limit.key, useForm({ value: String(limit.value) })]));
 
 const save = (limit) => forms[limit.key].put(`/admin/limits/${limit.key}`, { preserveScroll: true });
+
+// The guided debate flow of new debates at one level. Debates already started keep the flow they began with.
+const setGuided = (level) => router.put(`/admin/guided-debate/${level.level}`, { enabled: !level.enabled }, { preserveScroll: true });
 
 const resetToDefault = (limit) => router.post(`/admin/limits/${limit.key}/reset`, {}, {
     preserveScroll: true,
@@ -42,6 +47,39 @@ const resetToDefault = (limit) => router.post(`/admin/limits/${limit.key}/reset`
             <h2 id="ai-budget-title" class="text-sm font-semibold text-ink-100">Shared AI budget</h2>
             <p class="mt-3 text-2xl font-semibold text-ink-100">used today: {{ aiBudget.used }} of {{ aiBudget.limit }}</p>
             <p class="mt-2 text-sm text-ink-400">The count starts again at {{ aiBudget.resets_at }}. Admins are not counted.</p>
+        </section>
+
+        <section class="mt-10 rounded-2xl border border-white/8 bg-ink-900/60 p-6" aria-labelledby="guided-debate-title">
+            <h2 id="guided-debate-title" class="text-sm font-semibold text-ink-100">Guided debate</h2>
+            <p class="mt-3 text-sm text-ink-400">
+                The guided flow opens with a brief of the article and the debate question, and reviews the learner's turns in writing.
+                A change applies to debates started from now on; a debate under way keeps the flow it began with.
+            </p>
+
+            <ul class="mt-4 divide-y divide-white/8">
+                <li v-for="level in guidedDebate" :key="level.level" class="flex items-center justify-between gap-4 py-4">
+                    <div class="min-w-0">
+                        <p class="font-semibold text-ink-100">{{ level.level }}</p>
+                        <p class="mt-1 text-xs text-ink-400">
+                            {{ level.enabled ? 'Guided' : 'Classic' }} · default {{ level.default ? 'guided' : 'classic' }} · {{ level.customised ? 'changed by an admin' : 'using the default' }}
+                        </p>
+                    </div>
+                    <button
+                        type="button"
+                        role="switch"
+                        :aria-checked="String(level.enabled)"
+                        :aria-label="`Guided debate at ${level.level}`"
+                        class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition focus:outline-none focus-visible:ring-2 focus-visible:ring-speaking/40"
+                        :class="level.enabled ? 'border-speaking/60 bg-speaking/40' : 'border-white/10 bg-ink-950/60'"
+                        @click="setGuided(level)"
+                    >
+                        <span
+                            class="inline-block h-4 w-4 transform rounded-full bg-ink-100 transition"
+                            :class="level.enabled ? 'translate-x-6' : 'translate-x-1'"
+                        />
+                    </button>
+                </li>
+            </ul>
         </section>
 
         <ul class="mt-8 space-y-3">

@@ -9,6 +9,7 @@ use App\Events\DebateTurnFailed;
 use App\Events\UserTurnTranscribed;
 use App\Models\Debate;
 use App\Models\DebateMessage;
+use App\Services\Debate\TutorVoice;
 use DateTimeInterface;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -17,11 +18,7 @@ use Illuminate\Support\Benchmark;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Str;
-use Laravel\Ai\Audio;
-use Laravel\Ai\Responses\AudioResponse;
 use Laravel\Ai\Transcription;
-use RuntimeException;
 use Throwable;
 use UnexpectedValueException;
 
@@ -101,7 +98,7 @@ class ProcessVoiceDebate implements ShouldQueue
     /**
      * Execute the job.
      */
-    public function handle(): void
+    public function handle(TutorVoice $voice): void
     {
         // The debate may have been finished while this turn waited in the queue. Its report is already
         // written, so the turn is dropped: no message is added and no reply is sent.
@@ -123,6 +120,12 @@ class ProcessVoiceDebate implements ShouldQueue
             return;
         }
 
+        // A guided debate reviews the learner's words in writing. The review is queued now and runs beside the
+        // answer: it never speaks and never delays the voice.
+        if ($this->debate->isGuided() && $turn->corrections === null) {
+            rescue(fn () => ReviewLearnerTurn::dispatch($turn));
+        }
+
         // A reply that is already stored answers this turn: an earlier attempt got that far and then stopped
         // (a timeout, a lost connection). Send it again instead of paying for a second answer.
         if ($answer = $this->answer($turn)) {
@@ -139,7 +142,7 @@ class ProcessVoiceDebate implements ShouldQueue
         rescue(fn () => UserTurnTranscribed::dispatch($turn));
 
         [$reply, $llmMs] = Benchmark::value(fn () => $this->reply($turn));
-        [[$audioPath, $backupVoice], $ttsMs] = Benchmark::value(fn () => $this->synthesise($reply));
+        [[$audioPath, $backupVoice], $ttsMs] = Benchmark::value(fn () => $voice->synthesise($this->debate, $reply, ['turn' => $this->turnId()]));
 
         $message = $this->debate->messages()->create([
             'role' => MessageRole::Assistant,
@@ -250,53 +253,6 @@ class ProcessVoiceDebate implements ShouldQueue
     private function replyCacheKey(DebateMessage $turn): string
     {
         return 'debate-reply:'.$turn->getKey();
-    }
-
-    /**
-     * Synthesise the reply to an MP3 file, and return its storage path and whether the backup voice made it.
-     *
-     * @return array{0: string, 1: bool}
-     */
-    private function synthesise(string $text): array
-    {
-        $backupVoice = false;
-
-        try {
-            $audio = $this->speak($text, config('debate.tts'));
-        } catch (Throwable $e) {
-            if (config('debate.tts.fallback.model') === null) {
-                throw $e;
-            }
-
-            // The user still hears the reply, in the backup voice; the failure stays in the log.
-            Log::warning('Main voice failed; answering with the backup voice.', $this->context([
-                'tts' => config('debate.tts.provider'),
-                'exception' => $e::class,
-            ]));
-            report($e);
-
-            $audio = $this->speak($text, config('debate.tts.fallback'));
-            $backupVoice = true;
-        }
-
-        $path = $audio->storeAs("debates/{$this->debate->id}/replies", Str::uuid().'.mp3', config('debate.audio.disk'));
-
-        if (! is_string($path)) {
-            throw new RuntimeException('The synthesised reply could not be stored.');
-        }
-
-        return [$path, $backupVoice];
-    }
-
-    /**
-     * @param  array{provider: string, model: ?string, voice: string, timeout: int}  $tts
-     */
-    private function speak(string $text, array $tts): AudioResponse
-    {
-        return Audio::of($text)
-            ->voice($tts['voice'])
-            ->timeout($tts['timeout'])
-            ->generate($tts['provider'], $tts['model']);
     }
 
     /**
