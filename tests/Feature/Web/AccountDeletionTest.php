@@ -7,9 +7,11 @@ use App\Models\Debate;
 use App\Models\DebateMessage;
 use App\Models\User;
 use App\Models\UserVocabulary;
+use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Tests\TestCase;
@@ -173,9 +175,66 @@ class AccountDeletionTest extends TestCase
         $this->assertDatabaseHas('users', ['id' => $user->id]);
     }
 
+    public function test_a_disk_that_cannot_delete_does_not_stop_the_erasure_and_the_nightly_purge_collects_the_files(): void
+    {
+        $disk = Storage::fake('local');
+        $user = User::factory()->create();
+        $debate = Debate::factory()->for($user)->completed()->create();
+        $recording = "debates/{$debate->id}/recordings/turn.webm";
+        $reply = "debates/{$debate->id}/replies/answer.mp3";
+        $disk->put($recording, 'user voice');
+        $disk->put($reply, 'tutor voice');
+        Storage::set('local', $this->undeletable($disk));
+        Log::spy();
+
+        $this->actingAs($user)
+            ->from('/settings')
+            ->delete('/settings/account', ['password' => 'password'])
+            ->assertRedirect('/');
+
+        // The account is gone regardless; the files that could not be deleted are logged, not silently kept.
+        $this->assertDatabaseMissing('users', ['id' => $user->id]);
+        $this->assertDatabaseMissing('debates', ['id' => $debate->id]);
+        $this->assertGuest();
+        Log::shouldHaveReceived('warning')->once();
+
+        // The debate row is gone, so the nightly purge treats its folder as an orphan: it fails while the disk
+        // still refuses, and clears the folder once the disk works again.
+        $this->artisan('debates:prune-recordings')->assertExitCode(1);
+        $disk->assertExists($recording);
+        $disk->assertExists($reply);
+
+        Storage::set('local', $disk);
+
+        $this->artisan('debates:prune-recordings')
+            ->expectsOutputToContain('Removed the leftover audio of 1 deleted debate.')
+            ->assertSuccessful();
+
+        $this->assertSame([], $disk->allFiles("debates/{$debate->id}"));
+    }
+
     public function test_guests_are_sent_to_login(): void
     {
         $this->delete('/settings/account', ['password' => 'password'])->assertRedirect('/login');
+    }
+
+    /**
+     * A disk that keeps every file, as the local disk does with throw=false when the operating system refuses.
+     */
+    private function undeletable(FilesystemAdapter $disk): FilesystemAdapter
+    {
+        return new class($disk->getDriver(), $disk->getAdapter()) extends FilesystemAdapter
+        {
+            public function delete($paths)
+            {
+                return false;
+            }
+
+            public function deleteDirectory($directory)
+            {
+                return false;
+            }
+        };
     }
 
     /**
