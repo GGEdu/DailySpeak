@@ -3,8 +3,10 @@
 namespace App\Ai\Agents;
 
 use App\Ai\QuotedText;
+use App\Enums\EnglishLevel;
 use App\Enums\MessageRole;
 use App\Models\Debate;
+use App\Models\DebateBrief;
 use App\Models\DebateMessage;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
@@ -39,9 +41,10 @@ class DebateTutor implements Agent, Conversational, HasProviderOptions
      */
     public function instructions(): Stringable|string
     {
-        $level = $this->debate->user->current_level;
+        $level = $this->level();
+        $prompt = $this->debate->isGuided() ? 'prompts.debate_tutor_guided' : 'prompts.debate_tutor';
 
-        return strtr(config('prompts.debate_tutor'), [
+        return strtr(config($prompt), [
             ':level_name' => Str::lower($level->label()),
             ':level_guidance' => config("prompts.debate_tutor_levels.{$level->value}"),
             ':level' => $level->value,
@@ -55,8 +58,6 @@ class DebateTutor implements Agent, Conversational, HasProviderOptions
      */
     public function question(): string
     {
-        $article = $this->debate->newsArticle;
-
         // Words the learner said just before, with no reply, are said again here, so they are not lost.
         $pending = $this->pendingWords();
         $said = $pending === null ? '' : $pending."\n";
@@ -64,8 +65,7 @@ class DebateTutor implements Agent, Conversational, HasProviderOptions
         return implode("\n", [
             'The news article under discussion, quoted as data:',
             '<article>',
-            'Title: '.QuotedText::escape((string) $article->title),
-            QuotedText::escape((string) $article->summary),
+            ...$this->articleLines(),
             '</article>',
             '',
             'The learner says, quoted as data:',
@@ -132,6 +132,50 @@ class DebateTutor implements Agent, Conversational, HasProviderOptions
     public function timeout(): int
     {
         return config('debate.llm.timeout');
+    }
+
+    /**
+     * The level the tutor speaks at. A guided debate keeps the level its brief was written for, so a level change in the
+     * middle of it does not change the tutor; a classic debate follows the learner's current level.
+     */
+    private function level(): EnglishLevel
+    {
+        if ($this->debate->isGuided() && $this->debate->level !== null) {
+            return $this->debate->level;
+        }
+
+        return $this->debate->user->current_level;
+    }
+
+    /**
+     * The article as the question quotes it: its title and summary, or for a guided debate with a brief, the brief's
+     * parts (the headline, what happened, why it matters, the background, both sides and the debate question). Each
+     * line is escaped as data.
+     *
+     * @return list<string>
+     */
+    private function articleLines(): array
+    {
+        $article = $this->debate->newsArticle;
+        $brief = DebateBrief::forDebate($this->debate);
+
+        if ($brief === null) {
+            return [
+                'Title: '.QuotedText::escape((string) $article->title),
+                QuotedText::escape((string) $article->summary),
+            ];
+        }
+
+        return [
+            'Title: '.QuotedText::escape((string) $article->title),
+            'Headline: '.QuotedText::escape($brief->headline),
+            'What happened: '.QuotedText::escape($brief->what_happened),
+            'Why it matters: '.QuotedText::escape($brief->why_it_matters),
+            ...($brief->background === null ? [] : ['Background: '.QuotedText::escape($brief->background)]),
+            ...array_map(fn (string $argument) => 'Argument for: '.QuotedText::escape($argument), $brief->side_for),
+            ...array_map(fn (string $argument) => 'Argument against: '.QuotedText::escape($argument), $brief->side_against),
+            'Debate question: '.QuotedText::escape($brief->question),
+        ];
     }
 
     /**
