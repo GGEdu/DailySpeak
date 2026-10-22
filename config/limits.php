@@ -7,10 +7,12 @@ return [
     | Daily AI Budget
     |--------------------------------------------------------------------------
     |
-    | Calls to the AI provider per day across all users, counted on the routes
-    | that spend them (translations, vocabulary analysis and saves, voice turns).
-    | Each user keeps their own limits on top. Admins are exempt. When the budget
-    | is used up, the routes answer 429 and a critical entry is logged once a day.
+    | Calls to the AI provider per day across all users (translations, vocabulary
+    | analysis and saves, voice turns, fluency reports). A call is taken right
+    | before it is made (App\Services\AiBudget), so refused requests and cached
+    | answers cost nothing. Each user keeps their own limits on top. Admins are
+    | exempt. When it is used up, those requests are refused (429 in the API, an
+    | error on the page) and a critical entry is logged once a day.
     |
     */
 

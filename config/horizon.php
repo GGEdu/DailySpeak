@@ -97,9 +97,10 @@ return [
     */
 
     'waits' => [
-        // Users are waiting on a live voice reply, so a short queue wait is already a problem.
-        'redis:debates' => 10,
-        'redis:default' => 60,
+        // Each wait over the threshold mails HORIZON_NOTIFICATIONS_EMAIL, so these mark a queue that is really stuck,
+        // not a busy minute: 30 s on a live voice reply is already broken; default jobs (analysis, indexing) can wait.
+        'redis:debates' => 30,
+        'redis:default' => 120,
     ],
 
     /*
