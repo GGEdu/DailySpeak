@@ -1,7 +1,11 @@
 <script setup>
-import { Head, Link } from '@inertiajs/vue3';
+import { Head, Link, usePage } from '@inertiajs/vue3';
+import { computed } from 'vue';
 import AppLogo from '../components/AppLogo.vue';
 import '../lib/navigation';
+
+// Sign-up is offered only while it is open (the shared prop registration.open). Missing means closed.
+const registrationOpen = computed(() => usePage().props.registration?.open === true);
 
 const features = [
     {
@@ -33,7 +37,7 @@ const features = [
             <AppLogo />
             <nav class="flex items-center gap-2 text-sm">
                 <Link href="/login" class="rounded-lg px-3 py-2 text-ink-300 transition hover:text-ink-100">Log in</Link>
-                <Link href="/register" class="rounded-lg bg-ink-100 px-3.5 py-2 font-medium text-ink-950 transition hover:bg-white">
+                <Link v-if="registrationOpen" href="/register" class="rounded-lg bg-ink-100 px-3.5 py-2 font-medium text-ink-950 transition hover:bg-white">
                     Get started
                 </Link>
             </nav>
@@ -57,6 +61,7 @@ const features = [
 
                 <div class="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
                     <Link
+                        v-if="registrationOpen"
                         href="/register"
                         class="w-full rounded-xl bg-gradient-to-r from-thinking to-speaking px-6 py-3 text-sm font-semibold text-ink-950 shadow-[0_10px_40px_-12px_var(--color-speaking)] transition hover:brightness-110 sm:w-auto"
                     >
@@ -77,7 +82,7 @@ const features = [
         </main>
 
         <footer class="relative mx-auto max-w-6xl px-5 pb-10 text-center text-xs text-ink-500 sm:px-8">
-            <Link href="/privacy" class="hover:text-ink-300 underline-offset-4 hover:underline">Privacy notice</Link>
+            <Link href="/privacy" class="hover:text-ink-300 underline-offset-4 hover:underline">Privacy</Link>
         </footer>
     </div>
 </template>

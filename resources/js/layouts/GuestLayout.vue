@@ -47,7 +47,7 @@ const status = computed(() => usePage().props.flash?.status);
             </div>
 
             <p class="mt-8 text-center text-xs text-ink-500">
-                <Link href="/privacy" class="hover:text-ink-300 underline-offset-4 hover:underline">Privacy notice</Link>
+                <Link href="/privacy" class="hover:text-ink-300 underline-offset-4 hover:underline">Privacy</Link>
             </p>
         </main>
     </div>

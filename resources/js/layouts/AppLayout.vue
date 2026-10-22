@@ -1,9 +1,12 @@
 <script setup>
 import { Link, router, usePage } from '@inertiajs/vue3';
 import { computed, onBeforeUnmount } from 'vue';
+import AiLinks from '../components/AiLinks.vue';
 import AppLogo from '../components/AppLogo.vue';
 import SelectionLookup from '../components/SelectionLookup.vue';
+import { SESSION_AI_LINKS } from '../lib/aiErrors';
 import { clearExplanations } from '../lib/lookup';
+import { isCurrentSection } from '../lib/tabs';
 import '../lib/navigation';
 
 const page = usePage();
@@ -11,6 +14,11 @@ const user = computed(() => page.props.auth.user);
 const status = computed(() => page.props.flash?.status);
 const warning = computed(() => page.props.flash?.warning);
 const dueWords = computed(() => page.props.dueWords ?? 0);
+// The session error `ai` (e.g. a debate that could not start without a key). It is shown on whatever page the redirect lands on.
+const aiError = computed(() => (typeof page.props.errors?.ai === 'string' ? page.props.errors.ai : null));
+
+const navClass = 'inline-flex min-h-6 items-center text-ink-400 transition hover:text-ink-100';
+const current = (href) => (isCurrentSection(page.url, href) ? 'page' : undefined);
 
 // Logging out forgets this visit's explanations: the next person on the device gets none of them.
 const stopLogoutListener = router.on('start', (event) => {
@@ -29,20 +37,20 @@ onBeforeUnmount(stopLogoutListener);
         />
 
         <header class="sticky top-0 z-30 border-b border-white/5 bg-ink-950/75 backdrop-blur-xl">
-            <div class="mx-auto flex h-16 max-w-6xl items-center justify-between px-5 sm:px-8">
+            <div class="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-6 gap-y-3 px-5 py-3 sm:flex-nowrap sm:px-8 sm:py-0 sm:h-16">
                 <Link href="/feed" class="shrink-0" aria-label="DailySpeak — today's news">
                     <AppLogo compact />
                 </Link>
 
-                <nav class="flex shrink-0 items-center gap-3 text-sm whitespace-nowrap sm:gap-5">
-                    <Link href="/feed" class="hidden min-h-6 items-center text-ink-400 transition hover:text-ink-100 sm:inline-flex">Today's news</Link>
-                    <Link href="/vocabulary" class="flex min-h-6 items-center gap-1.5 text-ink-400 transition hover:text-ink-100">
+                <nav aria-label="Main" class="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm whitespace-nowrap sm:gap-5">
+                    <Link href="/feed" :class="navClass" :aria-current="current('/feed')">Today's news</Link>
+                    <Link href="/vocabulary" :class="['gap-1.5', navClass]" :aria-current="current('/vocabulary')">
                         Words
                         <span v-if="dueWords" class="rounded-full bg-speaking/15 px-1.5 text-[11px] font-semibold text-speaking" aria-hidden="true">{{ dueWords }}</span>
                         <span v-if="dueWords" class="sr-only">, {{ dueWords }} due for review</span>
                     </Link>
-                    <Link v-if="user.is_admin" href="/admin/sources" class="inline-flex min-h-6 items-center text-ink-400 transition hover:text-ink-100">Sources</Link>
-                    <Link v-if="user.is_admin" href="/admin/limits" class="inline-flex min-h-6 items-center text-ink-400 transition hover:text-ink-100">Limits</Link>
+                    <Link href="/settings" :class="navClass" :aria-current="current('/settings')">Settings</Link>
+                    <Link v-if="user.is_admin" href="/admin" :class="navClass" :aria-current="current('/admin')">Platform</Link>
                     <Link
                         href="/settings"
                         class="inline-flex min-h-6 items-center rounded-full border border-white/10 px-2.5 py-0.5 text-xs font-medium text-ink-300 transition hover:border-white/20 hover:text-ink-100"
@@ -51,7 +59,7 @@ onBeforeUnmount(stopLogoutListener);
                         {{ user.current_level }}
                     </Link>
                     <span class="hidden text-ink-300 md:inline">{{ user.name }}</span>
-                    <Link href="/logout" method="post" as="button" class="inline-flex min-h-6 items-center text-ink-400 transition hover:text-ink-100">Log out</Link>
+                    <Link href="/logout" method="post" as="button" :class="navClass">Log out</Link>
                 </nav>
             </div>
         </header>
@@ -72,9 +80,21 @@ onBeforeUnmount(stopLogoutListener);
             >
                 {{ warning }}
             </p>
+            <div
+                v-if="aiError"
+                role="alert"
+                class="mx-auto mb-8 flex max-w-3xl flex-col gap-2 rounded-xl border border-listening/25 bg-listening/10 px-4 py-3 text-sm text-listening"
+            >
+                <p>{{ aiError }}</p>
+                <AiLinks :links="SESSION_AI_LINKS" />
+            </div>
 
             <slot />
         </main>
+
+        <footer class="relative mx-auto max-w-6xl px-5 pb-10 text-center text-xs text-ink-500 sm:px-8">
+            <Link href="/privacy" class="inline-flex min-h-6 items-center hover:text-ink-300 underline-offset-4 hover:underline">Privacy</Link>
+        </footer>
 
         <!-- Select a word in any [data-selectable] text to translate it or save it. -->
         <SelectionLookup />
