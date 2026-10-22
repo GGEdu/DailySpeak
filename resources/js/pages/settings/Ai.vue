@@ -77,7 +77,7 @@ const errorsFor = (task) => ({
                     the news summaries and the summary of each debate, shared by everyone. You do not pay for them.
                 </li>
                 <li>
-                    Nothing runs on a key you have not saved, and nothing falls back to someone else’s key without asking.
+                    A task never switches to another key on its own: if the key it needs is missing, it stops and tells you.
                     Your usage and your monthly limit are on the Usage tab.
                 </li>
             </ul>
