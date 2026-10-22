@@ -54,15 +54,15 @@ class AppServiceProviderTest extends TestCase
 
     public function test_a_voice_turn_budget_that_reaches_the_job_timeout_is_logged_once_an_hour(): void
     {
-        // 45 + 30 + 30 + 20 + 2 x 3 + 3 = 134 seconds, but ProcessVoiceDebate stops at 120.
-        config(['debate.stt.timeout' => 45]);
+        // 60 + 30 + 30 + 2 x 3 + 3 = 129 seconds, but ProcessVoiceDebate stops at 120 (no backup voice any more).
+        config(['debate.stt.timeout' => 60]);
         Log::spy();
         $provider = $this->app->getProvider(AppServiceProvider::class);
 
         $provider->boot();
         $provider->boot();
 
-        Log::shouldHaveReceived('warning')->once()->with(Mockery::pattern('/voice turn may need 134/'));
+        Log::shouldHaveReceived('warning')->once()->with(Mockery::pattern('/voice turn may need 129/'));
     }
 
     private function checksBreaches(Password $rule): bool

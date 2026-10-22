@@ -4,6 +4,9 @@ namespace Database\Factories;
 
 use App\Enums\EnglishLevel;
 use App\Models\User;
+use App\Models\UserAiKey;
+use App\Models\UserAiTask;
+use App\Services\Ai\ProviderCatalog;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
@@ -36,6 +39,52 @@ class UserFactory extends Factory
             'consented_at' => now(),
             'consent_version' => User::CONSENT_VERSION,
         ];
+    }
+
+    /**
+     * Under test, every user made by the factory has an AI connection of their own, as a user who set one up has: an
+     * OpenAI key and every task picked with its suggested model. Use withoutAi() for a user with none. Seeded development
+     * data gets no key: the factory is not a place to keep one.
+     */
+    public function configure(): static
+    {
+        return $this->afterCreating(function (User $user): void {
+            if (! app()->runningUnitTests()) {
+                return;
+            }
+
+            UserAiKey::query()->create([
+                'user_id' => $user->getKey(),
+                'provider' => 'openai',
+                'key' => 'sk-factory-test-0000',
+                'last4' => '0000',
+                'verified_at' => now(),
+            ]);
+
+            $suggested = ProviderCatalog::suggestions('openai');
+
+            foreach (['conversation', 'writing', 'stt', 'tts'] as $task) {
+                UserAiTask::query()->create([
+                    'user_id' => $user->getKey(),
+                    'task' => $task,
+                    'provider' => 'openai',
+                    'model' => $suggested[$task],
+                    'voice' => $task === 'tts' ? $suggested['voice'] : null,
+                ]);
+            }
+        });
+    }
+
+    /**
+     * A user with no AI connection: no key and no task picked. Runs after the connection configure() gives, so it
+     * takes it back.
+     */
+    public function withoutAi(): static
+    {
+        return $this->afterCreating(function (User $user): void {
+            $user->aiKeys()->delete();
+            $user->aiTasks()->delete();
+        });
     }
 
     /**

@@ -79,7 +79,7 @@ class FetchDailyNewsTest extends TestCase
 
         $this->artisan('news:fetch')->assertSuccessful();
 
-        NewsSummarizer::assertPrompted(fn (AgentPrompt $prompt) => $prompt->provider->name() === 'openai'
+        NewsSummarizer::assertPrompted(fn (AgentPrompt $prompt) => $prompt->provider->driver() === 'openai'
             && $prompt->model === 'gpt-4o-mini'
             && str_contains($prompt->agent->instructions(), 'Resume esta noticia en 3 párrafos para un estudiante de inglés C1'));
     }
