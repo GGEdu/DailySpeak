@@ -2,7 +2,6 @@
 
 namespace App\Models;
 
-use App\Enums\DebateStatus;
 use App\Enums\EnglishLevel;
 use App\Notifications\QueuedVerifyEmail;
 use Database\Factories\UserFactory;
@@ -98,21 +97,5 @@ class User extends Authenticatable implements MustVerifyEmail
     public function vocabularies(): HasMany
     {
         return $this->hasMany(UserVocabulary::class);
-    }
-
-    /**
-     * Start a debate about the article, or resume the active one the user already has.
-     *
-     * The partial unique index on debates rejects a second active debate for the same article, so when
-     * a double submit loses the race, createOrFirst() returns the debate that won it.
-     */
-    public function startDebate(NewsArticle $article): Debate
-    {
-        $active = [
-            'news_article_id' => $article->id,
-            'status' => DebateStatus::Active,
-        ];
-
-        return $this->debates()->where($active)->first() ?? $this->debates()->createOrFirst($active);
     }
 }

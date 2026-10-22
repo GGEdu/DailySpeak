@@ -9,6 +9,7 @@ use App\Jobs\EvaluateDebate;
 use App\Models\Debate;
 use App\Models\NewsArticle;
 use App\Services\AiBudget;
+use App\Services\Guided\DebateStarter;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -22,9 +23,9 @@ class DebateSessionController extends Controller
     /**
      * Start (or resume) a debate about the article and open it.
      */
-    public function store(Request $request, NewsArticle $newsArticle): RedirectResponse
+    public function store(Request $request, NewsArticle $newsArticle, DebateStarter $starter): RedirectResponse
     {
-        $debate = $request->user()->startDebate($newsArticle);
+        $debate = $starter->start($request->user(), $newsArticle);
 
         return to_route('debates.show', $debate);
     }
