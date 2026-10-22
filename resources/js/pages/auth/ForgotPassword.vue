@@ -1,10 +1,12 @@
 <script setup>
 import { Head, Link, useForm } from '@inertiajs/vue3';
+import AltchaCheck from '../../components/AltchaCheck.vue';
 import TextField from '../../components/TextField.vue';
 import GuestLayout from '../../layouts/GuestLayout.vue';
 
 const form = useForm({
     email: '',
+    altcha: '',
 });
 
 const submit = () => form.post('/forgot-password');
@@ -16,6 +18,8 @@ const submit = () => form.post('/forgot-password');
     <GuestLayout title="Forgot your password?" subtitle="Enter your email and we'll send you a link to choose a new one.">
         <form class="space-y-5" @submit.prevent="submit">
             <TextField v-model="form.email" label="Email" type="email" autocomplete="email" required autofocus :error="form.errors.email" />
+
+            <AltchaCheck v-model="form.altcha" :error="form.errors.altcha" />
 
             <button
                 type="submit"

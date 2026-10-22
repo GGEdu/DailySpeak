@@ -13,23 +13,24 @@ use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\URL;
 use Inertia\Testing\AssertableInertia as Assert;
 use Laravel\Sanctum\Sanctum;
+use Tests\Support\SolvesAltcha;
 use Tests\TestCase;
 
 class EmailVerificationTest extends TestCase
 {
-    use RefreshDatabase;
+    use RefreshDatabase, SolvesAltcha;
 
     public function test_a_new_account_gets_a_verification_email_and_waits_for_it(): void
     {
         Notification::fake();
 
-        $this->post('/register', [
+        $this->post('/register', $this->withAltcha([
             'name' => 'Ana',
             'email' => 'ana@example.com',
             'password' => 'a-long-password',
             'password_confirmation' => 'a-long-password',
             'current_level' => EnglishLevel::B2->value,
-        ])->assertRedirect('/email/verify');
+        ]))->assertRedirect('/email/verify');
 
         Notification::assertSentTo(User::where('email', 'ana@example.com')->sole(), QueuedVerifyEmail::class);
     }
@@ -38,13 +39,13 @@ class EmailVerificationTest extends TestCase
     {
         Queue::fake();
 
-        $this->post('/register', [
+        $this->post('/register', $this->withAltcha([
             'name' => 'Ana',
             'email' => 'ana@example.com',
             'password' => 'a-long-password',
             'password_confirmation' => 'a-long-password',
             'current_level' => EnglishLevel::B2->value,
-        ])->assertRedirect('/email/verify');
+        ]))->assertRedirect('/email/verify');
 
         Queue::assertPushed(SendQueuedNotifications::class, fn (SendQueuedNotifications $job) => $job->notification instanceof VerifyEmail);
     }

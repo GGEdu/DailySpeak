@@ -87,5 +87,8 @@
         <env name="NEWS_AI_TIMEOUT" value="60"/>
         <env name="NEWS_MAX_ARTICLES_PER_FEED" value="5"/>
         <env name="NEWS_QUEUE_RETRY_AFTER" value="1800"/>
+        <!-- The human check's difficulty is low in tests, so solving a challenge takes milliseconds. -->
+        <env name="ALTCHA_COST" value="10"/>
+        <env name="ALTCHA_KEY_PREFIX_BYTES" value="1"/>
     </php>
 </phpunit>

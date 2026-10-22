@@ -11,11 +11,12 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Notification;
 use Inertia\Testing\AssertableInertia as Assert;
+use Tests\Support\SolvesAltcha;
 use Tests\TestCase;
 
 class PasswordResetTest extends TestCase
 {
-    use RefreshDatabase;
+    use RefreshDatabase, SolvesAltcha;
 
     private const LINK_SENT = 'If an account exists for that email, we have sent it a link to reset the password.';
 
@@ -30,7 +31,7 @@ class PasswordResetTest extends TestCase
         $user = User::factory()->create(['email' => 'ana@example.com']);
 
         $this->from('/forgot-password')
-            ->post('/forgot-password', ['email' => 'ana@example.com'])
+            ->post('/forgot-password', $this->withAltcha(['email' => 'ana@example.com']))
             ->assertRedirect('/forgot-password')
             ->assertSessionHas('status', self::LINK_SENT);
 
@@ -45,8 +46,8 @@ class PasswordResetTest extends TestCase
     {
         Notification::fake();
 
-        $this->post('/forgot-password', ['email' => 'nobody@example.com'])->assertSessionHas('status', self::LINK_SENT);
-        $this->post('/forgot-password', ['email' => 'not-an-email'])->assertSessionHasErrors('email');
+        $this->post('/forgot-password', $this->withAltcha(['email' => 'nobody@example.com']))->assertSessionHas('status', self::LINK_SENT);
+        $this->post('/forgot-password', $this->withAltcha(['email' => 'not-an-email']))->assertSessionHasErrors('email');
 
         Notification::assertNothingSent();
     }
@@ -66,7 +67,7 @@ class PasswordResetTest extends TestCase
         Notification::fake();
         Event::fake([PasswordReset::class]);
         $user = User::factory()->create(['remember_token' => 'old-remember-token']);
-        $this->post('/forgot-password', ['email' => $user->email]);
+        $this->post('/forgot-password', $this->withAltcha(['email' => $user->email]));
         $token = Notification::sent($user, ResetPassword::class)->sole()->token;
 
         $this->post('/reset-password', [
@@ -103,7 +104,7 @@ class PasswordResetTest extends TestCase
     {
         Notification::fake();
         $user = User::factory()->create();
-        $this->post('/forgot-password', ['email' => $user->email]);
+        $this->post('/forgot-password', $this->withAltcha(['email' => $user->email]));
         $token = Notification::sent($user, ResetPassword::class)->sole()->token;
         $reset = fn (string $password) => $this->post('/reset-password', [
             'token' => $token,
@@ -127,7 +128,7 @@ class PasswordResetTest extends TestCase
 
         // The reset pages are for guests; the flow runs as the signed-in session that stays open.
         $this->withoutMiddleware(RedirectIfAuthenticated::class);
-        $this->post('/forgot-password', ['email' => $user->email]);
+        $this->post('/forgot-password', $this->withAltcha(['email' => $user->email]));
         $token = Notification::sent($user, ResetPassword::class)->sole()->token;
 
         $this->post('/reset-password', [

@@ -1,5 +1,6 @@
 <script setup>
 import { Head, Link, useForm } from '@inertiajs/vue3';
+import AltchaCheck from '../../components/AltchaCheck.vue';
 import TextField from '../../components/TextField.vue';
 import GuestLayout from '../../layouts/GuestLayout.vue';
 
@@ -13,6 +14,7 @@ const form = useForm({
     current_level: 'B2',
     password: '',
     password_confirmation: '',
+    altcha: '',
 });
 
 const submit = () => form.post('/register', { onFinish: () => form.reset('password', 'password_confirmation') });
@@ -53,6 +55,8 @@ const submit = () => form.post('/register', { onFinish: () => form.reset('passwo
                 :error="form.errors.password"
             />
             <TextField v-model="form.password_confirmation" label="Confirm password" type="password" autocomplete="new-password" required />
+
+            <AltchaCheck v-model="form.altcha" :error="form.errors.altcha" />
 
             <button
                 type="submit"

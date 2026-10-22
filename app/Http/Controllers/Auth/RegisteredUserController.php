@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Auth;
 use App\Enums\EnglishLevel;
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Services\Captcha\AltchaChallenges;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -29,7 +30,7 @@ class RegisteredUserController extends Controller
     /**
      * Create the account and log the user in.
      */
-    public function store(Request $request): RedirectResponse
+    public function store(Request $request, AltchaChallenges $challenges): RedirectResponse
     {
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
@@ -37,6 +38,9 @@ class RegisteredUserController extends Controller
             'password' => ['required', 'confirmed', Password::defaults()],
             'current_level' => ['required', Rule::enum(EnglishLevel::class)],
         ]);
+
+        // After the form itself is valid, so a typo in another field does not use up the human check.
+        $challenges->ensureSolved($request->input('altcha'));
 
         $user = User::create($validated);
 

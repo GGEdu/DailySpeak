@@ -14,7 +14,7 @@ use Tests\TestCase;
 class RouteAccessTest extends TestCase
 {
     /** Open to guests: the landing page, sign-in and sign-up, and password reset. */
-    private const GUEST_URIS = ['', 'login', 'register', 'forgot-password', 'reset-password', 'reset-password/{token}'];
+    private const GUEST_URIS = ['', 'login', 'register', 'altcha/challenge', 'forgot-password', 'reset-password', 'reset-password/{token}'];
 
     /**
      * Signed in, but deliberately not verified: an unverified user must still be able to log out, to verify
