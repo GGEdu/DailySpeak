@@ -59,7 +59,8 @@ class NewsSourceController extends Controller
             return back()->with('status', "{$source->name} added. It will be read in the next daily run.");
         }
 
-        return back()->with('status', "{$source->name} added. Heads-up: {$result->note}");
+        // A heads-up is a warning, not a success: the page shows it in amber.
+        return back()->with('warning', "{$source->name} added. Heads-up: {$result->note}");
     }
 
     /**

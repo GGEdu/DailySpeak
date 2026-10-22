@@ -44,6 +44,8 @@ class HandleInertiaRequests extends Middleware
             'dueWords' => fn () => $request->user()?->vocabularies()->due()->count() ?? 0,
             'flash' => [
                 'status' => fn () => $request->session()->get('status'),
+                // A heads-up that must not look like success (see AppLayout).
+                'warning' => fn () => $request->session()->get('warning'),
             ],
         ];
     }

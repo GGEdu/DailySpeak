@@ -66,7 +66,8 @@ class NewsSourcesTest extends TestCase
             ->from('/admin/sources')
             ->post('/admin/sources', ['name' => 'Example – World', 'feed_url' => 'https://feeds.example.test/rss.xml', 'category' => 'world'])
             ->assertRedirect('/admin/sources')
-            ->assertSessionHas('status', 'Example – World added. Heads-up: The BBC licenses its content for personal, non-commercial use only.');
+            ->assertSessionHas('warning', 'Example – World added. Heads-up: The BBC licenses its content for personal, non-commercial use only.')
+            ->assertSessionMissing('status');
 
         $this->assertDatabaseHas('news_sources', [
             'feed_url' => 'https://feeds.example.test/rss.xml',
@@ -223,7 +224,7 @@ class NewsSourcesTest extends TestCase
         $this->actingAs($this->admin)
             ->post('/admin/sources', ['name' => 'Example – World', 'feed_url' => 'https://feeds.example.test/rss.xml', 'category' => 'world'])
             ->assertRedirect()
-            ->assertSessionHas('status', 'Example – World added. Heads-up: robots.txt on www.bbc.co.uk blocks GPTBot from the pages checked. The BBC licenses its content for personal, non-commercial use only.');
+            ->assertSessionHas('warning', 'Example – World added. Heads-up: robots.txt on www.bbc.co.uk blocks GPTBot from the pages checked. The BBC licenses its content for personal, non-commercial use only.');
 
         // A warning never stops the source: it is saved and active, and its result is kept for admins.
         $this->assertDatabaseHas('news_sources', ['feed_url' => 'https://feeds.example.test/rss.xml', 'is_active' => true, 'policy_status' => 'warning']);
@@ -241,7 +242,7 @@ class NewsSourcesTest extends TestCase
         $this->actingAs($this->admin)
             ->post('/admin/sources', ['name' => 'Example – World', 'feed_url' => 'https://feeds.example.test/rss.xml', 'category' => 'world'])
             ->assertRedirect()
-            ->assertSessionHas('status', 'Example – World added. Heads-up: The BBC licenses its content for personal, non-commercial use only. robots.txt on feeds.example.test could not be read (HTTP 503), so it was not checked. robots.txt on www.bbc.co.uk could not be read (HTTP 503), so it was not checked.');
+            ->assertSessionHas('warning', 'Example – World added. Heads-up: The BBC licenses its content for personal, non-commercial use only. robots.txt on feeds.example.test could not be read (HTTP 503), so it was not checked. robots.txt on www.bbc.co.uk could not be read (HTTP 503), so it was not checked.');
 
         $this->assertDatabaseHas('news_sources', ['feed_url' => 'https://feeds.example.test/rss.xml', 'is_active' => true, 'policy_status' => 'warning']);
     }
