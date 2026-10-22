@@ -17,7 +17,8 @@ class RssFeedReader
     public function __construct(private readonly SafeHttpFetcher $fetcher) {}
 
     /**
-     * Download and parse an RSS 2.0 or Atom feed.
+     * Download and parse an RSS 2.0 or Atom feed. The nightly harvest retries a feed that is briefly down; a
+     * request someone is waiting on (an admin adding a source) passes 0 and gets its answer at once.
      *
      * @return Collection<int, FeedItem>
      *
@@ -26,9 +27,9 @@ class RssFeedReader
      * @throws UnsafeUrlException
      * @throws UnexpectedValueException
      */
-    public function read(string $url): Collection
+    public function read(string $url, int $retries = 2): Collection
     {
-        return $this->parse($this->fetcher->get($url, config('news.max_feed_bytes'), retries: 2));
+        return $this->parse($this->fetcher->get($url, config('news.max_feed_bytes'), retries: $retries));
     }
 
     /**

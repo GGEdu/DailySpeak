@@ -66,7 +66,8 @@ class StoreNewsSourceRequest extends FormRequest
     private function readableFeed(string $attribute, string $url, Closure $fail): void
     {
         try {
-            $items = app(RssFeedReader::class)->read($url);
+            // The admin is waiting on the form and can submit it again: no retries inside the request.
+            $items = app(RssFeedReader::class)->read($url, retries: 0);
         } catch (Throwable) {
             $fail('No RSS feed could be read at this URL.');
 
