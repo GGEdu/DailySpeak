@@ -362,6 +362,48 @@ class SafeHttpFetcherTest extends TestCase
         Sleep::assertNeverSlept();
     }
 
+    public function test_only_the_standard_web_ports_are_read(): void
+    {
+        $this->resolveTo(['cdn.example.test' => ['93.184.216.34']]);
+        Http::fake(['cdn.example.test/*' => Http::response('ok')]);
+
+        // A public address also answers on its other ports: a service there must not be reachable through the feed.
+        $refused = [
+            'https://cdn.example.test:8443/feed', 'http://cdn.example.test:8080/feed',
+            'http://93.184.216.34:6379/', 'https://93.184.216.34:22/',
+        ];
+
+        foreach ($refused as $url) {
+            $this->assertThrows(fn () => $this->fetch($url), UnsafeUrlException::class);
+        }
+        Http::assertNothingSent();
+
+        $this->assertSame('ok', $this->fetch('https://cdn.example.test:443/feed'));
+        $this->assertSame('ok', $this->fetch('http://cdn.example.test:80/feed'));
+    }
+
+    public function test_a_proxy_from_the_environment_is_not_used(): void
+    {
+        // Through a proxy the proxy connects to the host, resolving it again: the checked address is not the one used.
+        $_SERVER['HTTPS_PROXY'] = 'http://proxy.example.test:3128';
+        $options = null;
+
+        try {
+            $this->resolveTo(['cdn.example.test' => ['93.184.216.34']]);
+            Http::fake(['cdn.example.test/*' => function ($request, array $requestOptions) use (&$options) {
+                $options = $requestOptions;
+
+                return Http::response('plain');
+            }]);
+
+            $this->assertSame('plain', $this->fetch('https://cdn.example.test/feed'));
+        } finally {
+            unset($_SERVER['HTTPS_PROXY']);
+        }
+
+        $this->assertSame('', $options['proxy'] ?? null);
+    }
+
     public function test_private_hosts_cannot_be_allowed_in_production(): void
     {
         config(['news.allow_private_hosts' => true]);
