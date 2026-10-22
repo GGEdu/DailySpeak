@@ -5,8 +5,10 @@ namespace Tests\Feature\Services;
 use App\Models\User;
 use App\Services\Limits;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 class LimitsTest extends TestCase
@@ -28,6 +30,15 @@ class LimitsTest extends TestCase
             'debate_finishes_per_minute' => 5,
         ], collect(Limits::keys())->mapWithKeys(fn (string $key) => [$key => $limits->value($key)])->all());
         $this->assertDatabaseEmpty('app_settings');
+    }
+
+    public function test_before_the_migration_has_run_the_defaults_apply_and_nothing_is_cached(): void
+    {
+        // A deploy serves the new code for a minute before it migrates: no limiter may fail for want of the table.
+        Schema::drop('app_settings');
+
+        $this->assertSame(config('limits.ai_daily_global'), app(Limits::class)->value('ai_daily_global'));
+        $this->assertFalse(Cache::has('app-settings:limits'), 'An empty answer must not be cached, or the saved values would never be read.');
     }
 
     public function test_a_default_is_read_from_the_config_when_it_is_needed(): void

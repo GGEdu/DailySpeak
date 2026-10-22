@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\AppSetting;
 use App\Models\User;
 use Closure;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
@@ -174,10 +175,16 @@ class Limits
      */
     private function saved(): array
     {
-        return Cache::rememberForever(self::CACHE_KEY, fn () => AppSetting::query()
-            ->pluck('value', 'key')
-            ->map(fn (mixed $value) => (int) $value)
-            ->all());
+        try {
+            return Cache::rememberForever(self::CACHE_KEY, fn () => AppSetting::query()
+                ->pluck('value', 'key')
+                ->map(fn (mixed $value) => (int) $value)
+                ->all());
+        } catch (QueryException) {
+            // A deploy serves the new code a moment before it migrates, and the database can be briefly away: the
+            // configured defaults apply meanwhile, and nothing is cached, so the saved values are read once it is back.
+            return [];
+        }
     }
 
     /**
