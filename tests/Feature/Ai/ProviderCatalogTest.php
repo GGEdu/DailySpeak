@@ -69,13 +69,13 @@ class ProviderCatalogTest extends TestCase
     }
 
     #[DataProvider('drivers')]
-    public function test_the_driver_is_the_sdk_driver_of_the_same_name(string $id): void
+    public function test_the_driver_is_the_sdk_driver_of_the_same_name(string $id, string $class): void
     {
         $this->assertSame($id, ProviderCatalog::driver($id));
     }
 
     #[DataProvider('drivers')]
-    public function test_the_address_is_fixed_and_https(string $id): void
+    public function test_the_address_is_fixed_and_https(string $id, string $class): void
     {
         $this->assertStringStartsWith('https://', ProviderCatalog::url($id));
     }
