@@ -51,6 +51,26 @@ export function postJson(url, data, { signal } = {}) {
     });
 }
 
+/**
+ * POST with no result to read: any 2xx answer is a success and its body (none on a 204) is not parsed.
+ * Failures are thrown the same way as the other helpers.
+ */
+export async function postAction(url, { signal } = {}) {
+    const response = await fetch(url, {
+        method: 'POST',
+        signal,
+        credentials: 'same-origin',
+        headers: {
+            Accept: 'application/json',
+            'X-XSRF-TOKEN': xsrfToken(),
+        },
+    });
+
+    if (!response.ok) {
+        throw requestError(response, await response.json().catch(() => ({})));
+    }
+}
+
 async function send(url, init) {
     const response = await fetch(url, init);
 
