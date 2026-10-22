@@ -38,6 +38,17 @@ class AltchaCheckTest extends TestCase
         $this->get('/altcha/challenge')->assertStatus(429);
     }
 
+    public function test_loading_challenges_does_not_use_up_the_sign_up_attempts(): void
+    {
+        // The forms allow 6 a minute; a visitor who reloads the page fetches a challenge each time.
+        foreach (range(1, 8) as $reload) {
+            $this->get('/altcha/challenge')->assertOk();
+        }
+
+        $this->post('/register', $this->withAltcha($this->registration('ada@example.com')))
+            ->assertRedirect('/email/verify');
+    }
+
     public function test_signed_in_users_are_not_offered_a_challenge(): void
     {
         $this->actingAs(User::factory()->create())->get('/altcha/challenge')->assertRedirect('/');

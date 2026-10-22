@@ -34,9 +34,10 @@ Route::middleware('guest')->group(function () {
     Route::post('/register', [RegisteredUserController::class, 'store'])
         ->middleware(['throttle:6,1', 'throttle:register']);
 
-    // The human check's challenge. Each sign-up or reset page loads one, so it is throttled like the forms.
+    // The human check's challenge. Each sign-up or reset page loads one. Its own counter (the third argument):
+    // an unnamed throttle shares one per visitor with the 6-a-minute forms, and reloading would lock sign-up.
     Route::get('/altcha/challenge', [AltchaChallengeController::class, 'show'])
-        ->middleware('throttle:20,1')
+        ->middleware('throttle:20,1,altcha')
         ->name('altcha.challenge');
 
     Route::get('/forgot-password', [PasswordResetLinkController::class, 'create'])->name('password.request');
