@@ -94,13 +94,15 @@ class VocabularyController extends Controller
      */
     private function words(Request $request): array
     {
+        // Removing the last word of the last page leaves the page the user was on empty: show the new last page.
+        $lastPage = max(1, (int) ceil($this->vocabularies($request)->count() / self::LIST_PER_PAGE));
         $page = $this->vocabularies($request)
             ->select(['id', 'word', 'context', 'translation', 'mastery_level', 'next_review_at'])
             // Whether the word can be opened, without loading the analysis to find out.
             ->selectRaw('(analysis IS NOT NULL)::int AS has_analysis')
             ->orderBy('word')
             ->orderBy('id')
-            ->paginate(self::LIST_PER_PAGE);
+            ->paginate(self::LIST_PER_PAGE, ['*'], 'page', min(max(1, $request->integer('page', 1)), $lastPage));
 
         return [
             'data' => collect($page->items())

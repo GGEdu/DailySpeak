@@ -107,6 +107,24 @@ class VocabularyTest extends TestCase
                     ->where('words.current_page', 2)));
     }
 
+    public function test_removing_the_last_word_of_the_last_page_shows_the_page_before_not_an_empty_one(): void
+    {
+        $user = User::factory()->create();
+        UserVocabulary::factory(51)->for($user)->create();
+        $last = $user->vocabularies()->orderBy('word')->orderBy('id')->get()->last();
+
+        // Page 2 held only this word: after its removal the list is one page, and the page the user was on is gone.
+        $this->actingAs($user)->from('/vocabulary?page=2')->delete("/vocabulary/{$last->id}")->assertRedirect();
+
+        $this->actingAs($user)
+            ->get('/vocabulary?page=2')
+            ->assertInertia(fn (Assert $page) => $page
+                ->loadDeferredProps(fn (Assert $page) => $page
+                    ->where('words.current_page', 1)
+                    ->where('words.last_page', 1)
+                    ->has('words.data', 50)));
+    }
+
     public function test_the_meaning_of_a_word_is_only_sent_when_it_is_asked_for(): void
     {
         $word = UserVocabulary::factory()->create(['analysis' => ['definition' => 'A subtle difference.', 'part_of_speech' => 'noun']]);
