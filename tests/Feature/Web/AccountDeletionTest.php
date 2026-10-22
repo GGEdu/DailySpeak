@@ -2,11 +2,13 @@
 
 namespace Tests\Feature\Web;
 
+use App\Http\Middleware\HandleInertiaRequests;
 use App\Models\Debate;
 use App\Models\DebateMessage;
 use App\Models\User;
 use App\Models\UserVocabulary;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -115,8 +117,36 @@ class AccountDeletionTest extends TestCase
         $this->assertDatabaseMissing('users', ['id' => $user->id]);
     }
 
+    public function test_deleting_the_account_clears_the_inertia_history(): void
+    {
+        // On a shared computer, "Back" must not show the deleted account's pages: the next visit forgets the key
+        // of the encrypted history, as logging out does.
+        $user = User::factory()->create();
+
+        $this->actingAs($user)
+            ->from('/settings')
+            ->delete('/settings/account', ['password' => 'password'])
+            ->assertRedirect('/');
+
+        $this->withHeaders($this->inertiaHeaders())->get('/')->assertJson(['clearHistory' => true]);
+    }
+
     public function test_guests_are_sent_to_login(): void
     {
         $this->delete('/settings/account', ['password' => 'password'])->assertRedirect('/login');
+    }
+
+    /**
+     * The headers an Inertia visit sends, including the asset version the server expects.
+     *
+     * @return array<string, string>
+     */
+    private function inertiaHeaders(): array
+    {
+        return [
+            'X-Inertia' => 'true',
+            // As a string: without a built manifest the version is null, and Inertia compares it as ''.
+            'X-Inertia-Version' => (string) app(HandleInertiaRequests::class)->version(Request::create('/')),
+        ];
     }
 }
