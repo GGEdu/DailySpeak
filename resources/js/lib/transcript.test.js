@@ -51,15 +51,29 @@ test('latestId is the highest server id, ignoring the placeholder', () => {
     assert.equal(latestId([user(7), tutor(9), { id: 'pending', role: 'user', pending: true }]), 9);
 });
 
-test('a turn has no reply until a tutor message written after its baseline exists', () => {
-    const messages = [user(10), tutor(11), user(12, 'my answer'), { id: 'pending', role: 'user', pending: true }];
+// The server marks a user message with the voice turn it belongs to, and a tutor reply with the message it answers.
+const turnUser = (id, turn, transcript = 'my answer') => ({ ...user(id, transcript), turn });
+const answer = (id, userId, transcript = 'and?') => ({ ...tutor(id, transcript), reply_to_id: userId });
 
-    assert.deepEqual(findTurnMessages(messages, 11), { user: user(12, 'my answer'), reply: null });
+test('a turn has no reply until the tutor message that answers its user message exists', () => {
+    const messages = [user(10), tutor(11), turnUser(12, 't1'), { id: 'pending', role: 'user', pending: true }];
+
+    assert.deepEqual(findTurnMessages(messages, 't1'), { user: turnUser(12, 't1'), reply: null });
 });
 
-test('the reply of a turn is the tutor message after its baseline, with the user message just before it', () => {
-    const messages = [user(10), tutor(11), user(12, 'my answer'), tutor(13, 'and?')];
+test('the reply of a turn is the tutor message that answers its user message', () => {
+    const messages = [user(10), tutor(11), turnUser(12, 't1'), answer(13, 12)];
 
-    assert.deepEqual(findTurnMessages(messages, 11), { user: user(12, 'my answer'), reply: tutor(13, 'and?') });
-    assert.deepEqual(findTurnMessages(messages, 13), { user: null, reply: null });
+    assert.deepEqual(findTurnMessages(messages, 't1'), { user: turnUser(12, 't1'), reply: answer(13, 12) });
+});
+
+test('a late reply to an earlier turn is not the reply of the turn being waited for', () => {
+    const messages = [user(10), tutor(11), turnUser(12, 't1'), answer(13, 12), turnUser(14, 't2')];
+
+    assert.deepEqual(findTurnMessages(messages, 't2'), { user: turnUser(14, 't2'), reply: null });
+});
+
+test('messages without a turn never match a turn, not even with a missing turn id', () => {
+    assert.deepEqual(findTurnMessages([user(10), tutor(11)], 't1'), { user: null, reply: null });
+    assert.deepEqual(findTurnMessages([user(10), { ...user(12), turn: null }], null), { user: null, reply: null });
 });

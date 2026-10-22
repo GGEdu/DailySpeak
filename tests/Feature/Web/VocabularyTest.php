@@ -3,9 +3,12 @@
 namespace Tests\Feature\Web;
 
 use App\Ai\Agents\WordExplainer;
+use App\Http\Middleware\HandleInertiaRequests;
 use App\Models\User;
 use App\Models\UserVocabulary;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Inertia\Testing\AssertableInertia as Assert;
 use RuntimeException;
 use Tests\Feature\Api\WordLookupTest;
@@ -104,6 +107,24 @@ class VocabularyTest extends TestCase
                     ->where('words.current_page', 2)));
     }
 
+    public function test_removing_the_last_word_of_the_last_page_shows_the_page_before_not_an_empty_one(): void
+    {
+        $user = User::factory()->create();
+        UserVocabulary::factory(51)->for($user)->create();
+        $last = $user->vocabularies()->orderBy('word')->orderBy('id')->get()->last();
+
+        // Page 2 held only this word: after its removal the list is one page, and the page the user was on is gone.
+        $this->actingAs($user)->from('/vocabulary?page=2')->delete("/vocabulary/{$last->id}")->assertRedirect();
+
+        $this->actingAs($user)
+            ->get('/vocabulary?page=2')
+            ->assertInertia(fn (Assert $page) => $page
+                ->loadDeferredProps(fn (Assert $page) => $page
+                    ->where('words.current_page', 1)
+                    ->where('words.last_page', 1)
+                    ->has('words.data', 50)));
+    }
+
     public function test_the_meaning_of_a_word_is_only_sent_when_it_is_asked_for(): void
     {
         $word = UserVocabulary::factory()->create(['analysis' => ['definition' => 'A subtle difference.', 'part_of_speech' => 'noun']]);
@@ -127,6 +148,25 @@ class VocabularyTest extends TestCase
                 ->reloadOnly('explanation', fn (Assert $page) => $page
                     ->where('explanation.id', null)
                     ->where('explanation.analysis', null)));
+    }
+
+    public function test_a_partial_reload_runs_only_the_query_of_what_it_sends(): void
+    {
+        $word = UserVocabulary::factory()->create(['analysis' => ['definition' => 'A subtle difference.']]);
+        $version = (string) (new HandleInertiaRequests)->version(Request::create('/'));
+
+        // Asking for one meaning must not count the stats or load the due cards: they are not sent in this reload.
+        DB::enableQueryLog();
+        $props = $this->actingAs($word->user)
+            ->withHeaders(['X-Inertia' => 'true', 'X-Inertia-Version' => $version, 'X-Inertia-Partial-Component' => 'Vocabulary', 'X-Inertia-Partial-Data' => 'explanation'])
+            ->get("/vocabulary?explain={$word->id}")
+            ->assertOk()
+            ->json('props');
+        $queries = collect(DB::getQueryLog())->pluck('query')->filter(fn (string $sql) => str_contains($sql, 'user_vocabularies'));
+        DB::disableQueryLog();
+
+        $this->assertSame($word->id, $props['explanation']['id']);
+        $this->assertCount(1, $queries);
     }
 
     public function test_reviewing_a_word_records_the_answer(): void

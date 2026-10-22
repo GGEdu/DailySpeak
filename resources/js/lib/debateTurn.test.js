@@ -51,6 +51,9 @@ const flush = () => new Promise((resolve) => setImmediate(resolve));
 
 const user = (id, transcript = 'I think so.') => ({ id, role: 'user', transcript });
 const tutor = (id, transcript = 'Why?') => ({ id, role: 'assistant', transcript, audio_url: `https://files.test/${id}.mp3` });
+// The transcript from the server names the voice turn of a user message, and the message a reply answers.
+const turnUser = (id, turn) => ({ ...user(id), turn });
+const replyTo = (id, userId, transcript = 'Why?') => ({ ...tutor(id, transcript), reply_to_id: userId });
 const userEvent = (id, turn) => ({ message_id: id, transcript: 'I think so.', turn });
 const replyEvent = (id, userId, turn) => ({
     message_id: id,
@@ -395,7 +398,7 @@ test('at 130 s a reply the socket never delivered is shown instead of the error'
     await flush();
 
     h.clock.tick(REPLY_TIMEOUT_MS);
-    h.reloads[0].resolve([user(10), tutor(11), user(12), tutor(13, 'Go on.')]);
+    h.reloads[0].resolve([user(10), tutor(11), turnUser(12, 't1'), replyTo(13, 12, 'Go on.')]);
     await flush();
 
     assert.equal(h.store.notice, null);
@@ -411,16 +414,39 @@ test('a refresh while a reply is pending plays it, and otherwise only merges the
     await flush();
 
     const merged = h.turns.refresh();
-    h.reloads[0].resolve([user(10), tutor(11), user(12)]);
+    h.reloads[0].resolve([user(10), tutor(11), turnUser(12, 't1')]);
     assert.equal(await merged, false);
     assert.equal(h.store.state, 'thinking');
     assert.ok(h.store.messages.some((message) => message.id === 12));
     assert.equal(h.store.messages.some((message) => message.pending), false);
 
     const reply = h.turns.refresh();
-    h.reloads[1].resolve([user(10), tutor(11), user(12), tutor(13)]);
+    h.reloads[1].resolve([user(10), tutor(11), turnUser(12, 't1'), replyTo(13, 12)]);
     assert.equal(await reply, true);
     assert.equal(h.store.state, 'speaking');
+});
+
+test('a late reply to an earlier turn, brought by a refresh, is not the reply of the turn being waited for', async () => {
+    const h = harness({ turnIds: ['t1', 't2'] });
+    await sendTurn(h);
+    h.uploads[0].resolve({ status: 'processing', turn: 't1' });
+    await flush();
+    h.clock.tick(REPLY_TIMEOUT_MS);
+    h.reloads[0].resolve([user(10), tutor(11)]);
+    await flush();
+    assert.equal(h.store.state, 'idle', 'the first turn gave up');
+
+    await sendTurn(h);
+    h.uploads[1].resolve({ status: 'processing', turn: 't2' });
+    await flush();
+
+    // The reply to t1 arrived late: its ids are after the baseline of t2, but it answers t1, not t2.
+    const refreshed = h.turns.refresh();
+    h.reloads[1].resolve([user(10), tutor(11), turnUser(12, 't1'), replyTo(13, 12)]);
+
+    assert.equal(await refreshed, false);
+    assert.equal(h.store.state, 'thinking');
+    assert.equal(h.plays.length, 0);
 });
 
 test('a failed upload is retried by uploadTurn; a second failure ends the turn with the message', async () => {
