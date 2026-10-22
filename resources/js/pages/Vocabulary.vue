@@ -1,7 +1,8 @@
 <script setup>
 import { Deferred, Head, Link, router, usePage } from '@inertiajs/vue3';
-import { computed, nextTick, ref, watch } from 'vue';
+import { computed, nextTick, reactive, ref, watch } from 'vue';
 import AppLayout from '../layouts/AppLayout.vue';
+import { createMeanings } from '../lib/meanings';
 import { speak } from '../lib/lookup';
 import { timeAgo } from '../lib/time';
 
@@ -24,8 +25,9 @@ const revealed = ref(false);
 const submitting = ref(false);
 const explaining = ref(null);
 const expanded = ref(null);
-// Analyses already asked for, by word id.
-const meanings = ref({});
+// The meanings asked for in the list, by word id: the analyses that arrived, and the requests that failed.
+const meanings = reactive({ analyses: {}, failed: {} });
+const meaningRequests = createMeanings(meanings);
 const showButton = ref(null);
 const firstAnswer = ref(null);
 const page = usePage();
@@ -67,19 +69,25 @@ function toggle(word) {
 
     expanded.value = word.id;
 
-    if (!(word.id in meanings.value)) {
-        router.reload({ only: ['explanation'], data: { explain: word.id }, replace: true });
+    if (!meaningRequests.has(word.id)) {
+        loadMeaning(word);
     }
 }
 
-watch(
-    () => props.explanation,
-    (explanation) => {
-        if (explanation?.id) {
-            meanings.value = { ...meanings.value, [explanation.id]: explanation.analysis };
-        }
-    },
-);
+// Asked for when the user opens a word, and again when the user tries again after a failure.
+function loadMeaning(word) {
+    meaningRequests.ask(word.id);
+    router.reload({
+        only: ['explanation'],
+        data: { explain: word.id },
+        replace: true,
+        // A failed request is shown in its row, where the user can try again, not in Inertia's error dialog.
+        onHttpException: () => false,
+        onNetworkError: () => false,
+        onSuccess: (visit) => meaningRequests.answer(word.id, visit.props.explanation),
+        onFinish: () => meaningRequests.finish(word.id),
+    });
+}
 
 // Words recommended in a fluency report arrive without a translation: explain them on demand.
 function explainWord(word) {
@@ -230,14 +238,24 @@ function remove(word) {
                                 {{ expanded === word.id ? 'Hide meaning' : 'Show meaning' }}
                             </button>
                             <div v-if="word.has_analysis && expanded === word.id" class="mt-2 space-y-1 text-sm text-ink-300">
-                                <p v-if="!(word.id in meanings)">Loading…</p>
-                                <template v-else-if="meanings[word.id]">
+                                <template v-if="word.id in meanings.analyses">
                                     <p>
-                                        <span v-if="meanings[word.id].part_of_speech" class="mr-1.5 text-[11px] font-semibold tracking-wide text-ink-500 uppercase">{{ meanings[word.id].part_of_speech }}</span>
-                                        {{ meanings[word.id].definition }}
+                                        <span v-if="meanings.analyses[word.id].part_of_speech" class="mr-1.5 text-[11px] font-semibold tracking-wide text-ink-500 uppercase">{{ meanings.analyses[word.id].part_of_speech }}</span>
+                                        {{ meanings.analyses[word.id].definition }}
                                     </p>
-                                    <p v-if="meanings[word.id].example" class="text-ink-400 italic" data-selectable>“{{ meanings[word.id].example }}”</p>
+                                    <p v-if="meanings.analyses[word.id].example" class="text-ink-400 italic" data-selectable>“{{ meanings.analyses[word.id].example }}”</p>
                                 </template>
+                                <p v-else-if="meanings.failed[word.id]" role="alert" class="flex flex-wrap items-center gap-x-3">
+                                    Couldn't load the meaning.
+                                    <button
+                                        type="button"
+                                        class="min-h-6 rounded-lg px-2 py-1 font-medium text-thinking transition hover:bg-white/5 hover:text-ink-100"
+                                        @click="loadMeaning(word)"
+                                    >
+                                        Try again
+                                    </button>
+                                </p>
+                                <p v-else>Loading…</p>
                             </div>
                             <button
                                 v-if="!word.has_analysis"
