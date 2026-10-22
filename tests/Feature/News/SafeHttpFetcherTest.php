@@ -94,6 +94,19 @@ class SafeHttpFetcherTest extends TestCase
         $this->assertSame('final body', $this->fetch('https://start.example.test/feed'));
     }
 
+    public function test_a_redirect_is_followed_when_retries_are_on(): void
+    {
+        // Laravel hands the retry callback no exception for a 3xx (it is not a failure): the redirect is followed,
+        // not retried, and nothing blows up. Feeds and robots.txt are read with retries.
+        Http::fake([
+            'start.example.test/feed' => Http::response('', 301, ['Location' => 'https://cdn.example.test/feed.xml']),
+            'cdn.example.test/feed.xml' => Http::response('final body'),
+        ]);
+
+        $this->assertSame('final body', $this->fetch('https://start.example.test/feed', retries: 2));
+        Http::assertSentCount(2);
+    }
+
     public function test_relative_redirects_are_resolved_against_the_current_url(): void
     {
         Http::fake([

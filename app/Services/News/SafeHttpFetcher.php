@@ -171,7 +171,8 @@ class SafeHttpFetcher
             $request = $request->retry(
                 $retries + 1,
                 fn (int $attempt) => self::RETRY_BACKOFF_MILLISECONDS * 2 ** ($attempt - 1),
-                fn (Throwable $e) => $this->shouldRetry($e),
+                // Laravel passes no exception for a 3xx, which is not a failure: the redirect is followed below.
+                fn (?Throwable $e) => $e !== null && $this->shouldRetry($e),
                 false,
             );
         }
