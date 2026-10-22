@@ -2,7 +2,9 @@
 import { Head, Link, router } from '@inertiajs/vue3';
 import { useChannel, useConnectionStatus, useEcho } from '@laravel/echo-vue';
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, toRefs, watch, watchEffect } from 'vue';
+import BriefStatus from '../components/BriefStatus.vue';
 import ChatMessage from '../components/ChatMessage.vue';
+import DebateBrief from '../components/DebateBrief.vue';
 import FluencyReport from '../components/FluencyReport.vue';
 import StateIndicator from '../components/StateIndicator.vue';
 import VocabularyChips from '../components/VocabularyChips.vue';
@@ -12,7 +14,7 @@ import { useReplyPlayer } from '../composables/useReplyPlayer';
 import AppLayout from '../layouts/AppLayout.vue';
 import { unlockAudio } from '../lib/audio';
 import { createDebateTurns, uploadTurn } from '../lib/debateTurn';
-import { sameOriginPath } from '../lib/http';
+import { postAction, sameOriginPath } from '../lib/http';
 import { configureRealtime } from '../lib/realtime';
 import { clock, timeAgo } from '../lib/time';
 import { safeHttpUrl } from '../lib/url';
@@ -23,10 +25,14 @@ configureRealtime();
 
 defineOptions({ layout: AppLayout });
 
+// flow, brief and briefStatus come from DebateSessionController::show. Without them the page is the classic one.
 const props = defineProps({
     debate: { type: Object, required: true },
     article: { type: Object, required: true },
     messages: { type: Array, required: true },
+    flow: { type: String, default: 'classic' },
+    brief: { type: Object, default: null },
+    briefStatus: { type: String, default: null },
 });
 
 const MAX_TURN_SECONDS = 60;
@@ -36,9 +42,9 @@ const TRANSCRIPT_POLL_MS = 5_000; // while the realtime channel is not live
 const SKIP_SPACE_TARGETS = 'input, textarea, select, button, a, summary, [role=button], [tabindex], [contenteditable]';
 const SPACE_STATES = ['idle', 'listening', 'speaking'];
 
-// The turn machine (lib/debateTurn.js) owns state, notice and transcript; the page only renders them.
-const store = reactive({ state: 'idle', notice: null, messages: [...props.messages] });
-const { state, notice, messages: transcript } = toRefs(store);
+// The turn machine (lib/debateTurn.js) owns state, notice, transcript and the wait for the tutor's opening.
+const store = reactive({ state: 'idle', notice: null, messages: [...props.messages], opening: null });
+const { state, notice, messages: transcript, opening } = toRefs(store);
 const scroller = ref(null);
 const finishing = ref(false);
 
@@ -65,6 +71,17 @@ const canFinish = computed(
     () => isActive.value && state.value === 'idle' && transcript.value.some((message) => message.role === 'user' && !message.pending),
 );
 
+// The brief (guided debates): shown in place of the free summary. Its updates arrive by realtime, not by a reload.
+const isGuided = computed(() => props.flow === 'guided');
+const brief = ref(props.brief);
+const briefStatus = ref(props.briefStatus);
+const briefFailure = ref(null); // the reason of DebateBriefFailed: "budget" or "failed"
+const briefBusy = ref(false);
+const briefError = ref(null);
+const briefPreparing = computed(() => briefStatus.value === 'preparing');
+// The turn cannot start while the tutor has not opened the debate (store.opening), nor while its brief is being prepared.
+const holding = computed(() => state.value === 'idle' && (opening.value === 'waiting' || briefPreparing.value));
+
 const analyser = computed(() => {
     if (state.value === 'listening') return recorder.analyser.value;
     if (state.value === 'speaking') return player.analyser.value;
@@ -73,16 +90,17 @@ const analyser = computed(() => {
 });
 // The orb has no look of its own for "starting": it shows the idle wave while the permission prompt is open.
 const orbState = computed(() => (state.value === 'starting' ? 'idle' : state.value));
-const orbLabel = computed(
-    () =>
-        ({
-            idle: 'Tap to speak',
-            starting: 'Requesting microphone…',
-            listening: 'Listening… tap to send',
-            thinking: 'Thinking…',
-            speaking: 'Speaking… tap to interrupt',
-        })[state.value],
-);
+const orbLabel = computed(() => {
+    if (holding.value) return 'The tutor is getting ready…';
+
+    return {
+        idle: 'Tap to speak',
+        starting: 'Requesting microphone…',
+        listening: 'Listening… tap to send',
+        thinking: 'Thinking…',
+        speaking: 'Speaking… tap to interrupt',
+    }[state.value];
+});
 
 // A background reload of the transcript only. Resolves with the server's copy; rejects if the reload fails.
 function reloadMessages() {
@@ -110,7 +128,28 @@ const turns = createDebateTurns({
     player,
     upload: (blob, turn) => uploadTurn(uploadPath, blob, turn),
     reload: reloadMessages,
+    dismiss: (messageId, index) => postAction(`/api/debates/${props.debate.id}/messages/${messageId}/corrections/${index}/dismiss`),
+    // The wait for the question starts now only when the brief is ready; otherwise DebateBriefReady starts it.
+    awaitingOpening: isGuided.value && isActive.value && briefStatus.value === 'ready',
 });
+
+// Asks for the brief again after a failure. The result arrives by realtime, so only the state changes here.
+async function retryBrief() {
+    if (briefBusy.value) return;
+
+    briefBusy.value = true;
+    briefError.value = null;
+
+    try {
+        await postAction(`/api/debates/${props.debate.id}/brief`);
+        briefStatus.value = 'preparing';
+        briefFailure.value = null;
+    } catch {
+        briefError.value = "Couldn't start the brief again. Please try again.";
+    } finally {
+        briefBusy.value = false;
+    }
+}
 
 function syncTranscript() {
     // A failed refresh is retried by the next trigger (reconnect, tab focus, the timer while not live).
@@ -132,6 +171,24 @@ useEcho(props.debate.channel, 'DebateEvaluated', (event) => {
 useEcho(props.debate.channel, 'DebateEvaluationFailed', () => {
     evaluationFailed.value = true;
 });
+
+// Guided debates: the brief, then the tutor's opening, then the corrections of each learner turn.
+useEcho(props.debate.channel, 'DebateBriefReady', (event) => {
+    brief.value = event.brief;
+    briefStatus.value = 'ready';
+    briefFailure.value = null;
+    briefError.value = null;
+
+    if (isActive.value) turns.waitForOpening(); // the question follows the brief: the learner waits for it
+});
+
+useEcho(props.debate.channel, 'DebateBriefFailed', (event) => {
+    briefStatus.value = 'failed';
+    briefFailure.value = event.reason;
+});
+
+useEcho(props.debate.channel, 'TutorOpened', turns.onOpened);
+useEcho(props.debate.channel, 'LearnerTurnReviewed', turns.onLearnerTurnReviewed);
 
 // "Live" means subscribed to the private channel, not just connected: a refused subscription shows here.
 const realtime = useChannel(props.debate.channel).channel();
@@ -215,6 +272,8 @@ function submitFinish() {
 
 // Every tap starts (or stops) the audio context first, synchronously, while the browser still counts the gesture.
 function press() {
+    if (holding.value) return;
+
     unlockAudio();
     turns.press();
 }
@@ -307,14 +366,28 @@ onBeforeUnmount(() => {
             </p>
             <h1 data-selectable class="mt-2 text-2xl font-semibold tracking-tight text-balance text-ink-100">{{ article.title }}</h1>
 
+            <!-- Guided: the waiting and failure states stay in view; the brief itself folds on phones like the summary. -->
+            <BriefStatus
+                v-if="isGuided && !brief"
+                :status="briefStatus"
+                :reason="briefFailure"
+                :busy="briefBusy"
+                :error="briefError"
+                class="mt-4"
+                @retry="retryBrief"
+            />
+
             <!-- Collapsed on phones so the microphone stays within reach. -->
-            <details class="group mt-4" :open="isWideScreen">
+            <details v-if="!isGuided || brief" class="group mt-4" :open="isWideScreen">
                 <summary class="cursor-pointer list-none text-sm font-medium text-ink-400 transition hover:text-ink-200 lg:hidden">
                     <span class="group-open:hidden">Show summary</span>
                     <span class="hidden group-open:inline">Hide summary</span>
                 </summary>
-                <div class="mt-3 space-y-3 text-[15px] leading-relaxed text-ink-300 lg:mt-0">
-                    <p v-for="(paragraph, index) in paragraphs" :key="index" data-selectable>{{ paragraph }}</p>
+                <div class="mt-3 text-[15px] leading-relaxed text-ink-300 lg:mt-0">
+                    <DebateBrief v-if="isGuided" :brief="brief" />
+                    <div v-else class="space-y-3">
+                        <p v-for="(paragraph, index) in paragraphs" :key="index" data-selectable>{{ paragraph }}</p>
+                    </div>
                 </div>
             </details>
 
@@ -363,11 +436,20 @@ onBeforeUnmount(() => {
                     :message="message"
                     :playing="player.playingId.value === message.id"
                     @play="toggleReplay(message)"
+                    @dismiss="(index) => turns.dismissCorrection(message.id, index)"
                 />
             </div>
 
             <footer v-if="!isActive" class="border-t border-white/5 px-5 py-6">
                 <FluencyReport :feedback="feedback" :failed="evaluationFailed" :added-words="addedWords" @retry="retryEvaluation" />
+                <p
+                    v-if="notice"
+                    role="status"
+                    class="mt-4 rounded-xl px-4 py-2.5 text-center text-sm"
+                    :class="notice.tone === 'error' ? 'border border-listening/25 bg-listening/10 text-listening' : 'border border-white/10 bg-white/5 text-ink-300'"
+                >
+                    {{ notice.text }}
+                </p>
             </footer>
 
             <footer v-else class="flex flex-col items-center border-t border-white/5 px-5 pt-4 pb-7">
@@ -375,7 +457,7 @@ onBeforeUnmount(() => {
                     :state="orbState"
                     :analyser="analyser"
                     :label="orbLabel"
-                    :disabled="state === 'thinking' || state === 'starting'"
+                    :disabled="state === 'thinking' || state === 'starting' || holding"
                     @press="press"
                 />
 
@@ -393,7 +475,7 @@ onBeforeUnmount(() => {
                     >
                         Cancel
                     </button>
-                    <span v-else-if="state === 'idle' && isActive" class="hidden sm:inline">
+                    <span v-else-if="state === 'idle' && isActive && !holding" class="hidden sm:inline">
                         or press <kbd class="rounded border border-white/10 bg-white/5 px-1.5 py-0.5 font-sans text-ink-300">Space</kbd>
                     </span>
                 </div>
