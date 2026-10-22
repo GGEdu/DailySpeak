@@ -34,7 +34,8 @@ class User extends Authenticatable implements MustVerifyEmail
      */
     protected $attributes = [
         'current_level' => EnglishLevel::B2->value,
-        // Deliberately not fillable: only `php artisan user:admin` grants it.
+        // Deliberately not fillable: only the owner (the install's first account, see App\Services\Registration) and
+        // `php artisan user:admin` get it.
         'is_admin' => false,
     ];
 

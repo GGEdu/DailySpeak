@@ -4,15 +4,19 @@ namespace App\Providers;
 
 use App\Jobs\ProcessVoiceDebate;
 use App\Models\User;
+use App\Services\AiSettings;
 use App\Services\Limits;
 use App\Services\News\DnsHostResolver;
 use App\Services\News\HostResolver;
 use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Console\Events\CommandStarting;
 use Illuminate\Http\Middleware\TrustProxies;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Str;
@@ -38,6 +42,9 @@ class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->bind(HostResolver::class, DnsHostResolver::class);
+
+        // One per application: it remembers the config values the panel overrides (see AiSettings::apply()).
+        $this->app->singleton(AiSettings::class);
     }
 
     /**
@@ -50,6 +57,11 @@ class AppServiceProvider extends ServiceProvider
         $this->warnAboutVoiceTurnBudget();
 
         Gate::define('admin', fn (User $user) => $user->is_admin);
+
+        // The AI settings an admin saved are read before each job and each console command too. A worker such as Horizon
+        // runs for days, so a change on the panel reaches it at its next job, without a restart. Requests: see ApplyAiSettings.
+        Queue::before(fn () => $this->app->make(AiSettings::class)->apply());
+        Event::listen(CommandStarting::class, fn () => $this->app->make(AiSettings::class)->apply());
 
         // At least 12 characters. The breach list is checked in production only: it calls an outside service.
         Password::defaults(fn () => app()->isProduction() ? Password::min(12)->uncompromised() : Password::min(12));

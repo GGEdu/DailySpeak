@@ -1,10 +1,12 @@
 <?php
 
-use App\Enums\EnglishLevel;
 use App\Http\Controllers\AccountController;
-use App\Http\Controllers\Admin\GuidedDebateController;
+use App\Http\Controllers\Admin\AiController;
 use App\Http\Controllers\Admin\LimitsController;
 use App\Http\Controllers\Admin\NewsSourceController;
+use App\Http\Controllers\Admin\OverviewController;
+use App\Http\Controllers\Admin\PrivacySettingsController;
+use App\Http\Controllers\Admin\RegistrationController;
 use App\Http\Controllers\Auth\AltchaChallengeController;
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\Auth\EmailVerificationController;
@@ -110,6 +112,21 @@ Route::middleware(['auth', 'verified'])->group(function () {
 });
 
 Route::middleware(['auth', 'verified', 'can:admin'])->prefix('admin')->name('admin.')->group(function () {
+    Route::get('/', [OverviewController::class, 'index'])->name('index');
+
+    Route::put('/registration', [RegistrationController::class, 'update'])->name('registration.update');
+
+    Route::get('/ai', [AiController::class, 'edit'])->name('ai.edit');
+    Route::put('/ai', [AiController::class, 'update'])->name('ai.update');
+    Route::put('/ai/key', [AiController::class, 'saveKey'])->name('ai.key.save');
+    Route::delete('/ai/key', [AiController::class, 'forgetKey'])->name('ai.key.forget');
+    Route::post('/ai/test', [AiController::class, 'test'])
+        ->middleware('throttle:6,1') // each check is a request to the provider
+        ->name('ai.test');
+
+    Route::get('/privacy', [PrivacySettingsController::class, 'edit'])->name('privacy.edit');
+    Route::put('/privacy', [PrivacySettingsController::class, 'update'])->name('privacy.update');
+
     Route::get('/sources', [NewsSourceController::class, 'index'])->name('sources.index');
     Route::post('/sources', [NewsSourceController::class, 'store'])->name('sources.store');
     Route::patch('/sources/{source}', [NewsSourceController::class, 'update'])->name('sources.update');
@@ -119,9 +136,4 @@ Route::middleware(['auth', 'verified', 'can:admin'])->prefix('admin')->name('adm
     Route::get('/limits', [LimitsController::class, 'index'])->name('limits.index');
     Route::put('/limits/{key}', [LimitsController::class, 'update'])->name('limits.update');
     Route::post('/limits/{key}/reset', [LimitsController::class, 'reset'])->name('limits.reset');
-
-    // The guided debate switch per English level (App\Services\Guided\GuidedSettings).
-    Route::put('/guided-debate/{level}', [GuidedDebateController::class, 'update'])
-        ->whereIn('level', array_column(EnglishLevel::cases(), 'value'))
-        ->name('guided-debate.update');
 });

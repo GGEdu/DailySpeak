@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Services\Privacy\Responsible;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -12,13 +13,14 @@ class PrivacyController extends Controller
      * The public privacy notice. The retention periods come from the configuration, so the notice cannot drift from
      * what the scheduled deletions actually do.
      */
-    public function show(): Response
+    public function show(Responsible $responsible): Response
     {
         return Inertia::render('Privacy', [
             'version' => User::CONSENT_VERSION,
+            // What an admin set on /admin/privacy, else the operator's values in .env (config/privacy.php).
             'responsible' => [
-                'controller' => config('privacy.controller'),
-                'contact_email' => config('privacy.contact_email'),
+                'controller' => $responsible->controller(),
+                'contact_email' => $responsible->contactEmail(),
             ],
             'retention' => [
                 'recordings' => (int) config('debate.audio.retention_days'),

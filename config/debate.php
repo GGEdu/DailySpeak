@@ -119,16 +119,13 @@ return [
     | Guided Debate
     |--------------------------------------------------------------------------
     |
-    | The guided flow starts from a brief of the article (headline, what happened, why it matters, the two sides and
-    | the debate question), opens with that question, and reviews the learner's turns in writing. An admin turns it
-    | on per level on /admin/limits (app_settings guided_debate.B1, .B2, .C1); `levels` is the default until one is
-    | saved. A debate keeps the flow it started with.
+    | Every new debate is guided, at every level: it starts from a brief of the article (headline, what happened, why
+    | it matters, the two sides and the debate question), opens with that question, and reviews the learner's turns in
+    | writing. A debate keeps the flow it started with.
     |
     */
 
     'guided' => [
-        'levels' => array_values(array_filter(array_map('trim', explode(',', (string) env('DEBATE_GUIDED_LEVELS', 'B1'))))),
-
         // The brief is written once per article and level, in a single call. An empty provider uses the news
         // summariser's (config/news.php, ai), and so does an empty model when the provider is also empty; a provider
         // of its own never inherits the news model.

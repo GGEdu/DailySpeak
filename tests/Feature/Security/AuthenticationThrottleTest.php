@@ -7,6 +7,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Testing\TestResponse;
+use Tests\Support\OpensSignUp;
 use Tests\TestCase;
 
 /**
@@ -17,7 +18,14 @@ use Tests\TestCase;
  */
 class AuthenticationThrottleTest extends TestCase
 {
-    use RefreshDatabase;
+    use OpensSignUp, RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->signUpIsOpen();
+    }
 
     private const EMAIL = 'grace@example.com';
 

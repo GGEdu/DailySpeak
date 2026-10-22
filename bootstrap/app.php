@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\ApiSecurityHeaders;
+use App\Http\Middleware\ApplyAiSettings;
 use App\Http\Middleware\EnsureEmailVerifiedAndConsented;
 use App\Http\Middleware\HandleInertiaRequests;
 use App\Http\Middleware\SecurityHeaders;
@@ -29,12 +30,15 @@ return Application::configure(basePath: dirname(__DIR__))
         // Every route that needs a confirmed account (web and API) also needs the privacy notice accepted.
         $middleware->alias(['verified' => EnsureEmailVerifiedAndConsented::class]);
 
-        // JSON gets the headers that apply to it (no page policy), also on errors.
+        // JSON gets the headers that apply to it (no page policy), also on errors. The AI settings an admin saved apply
+        // to every request (jobs and commands: see AppServiceProvider).
         $middleware->api(prepend: [
+            ApplyAiSettings::class,
             ApiSecurityHeaders::class,
         ]);
 
         $middleware->web(prepend: [
+            ApplyAiSettings::class,
             SecurityHeaders::class,
         ], append: [
             HandleInertiaRequests::class,

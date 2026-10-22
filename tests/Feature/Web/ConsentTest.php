@@ -6,12 +6,20 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Inertia\Testing\AssertableInertia as Assert;
 use Laravel\Sanctum\Sanctum;
+use Tests\Support\OpensSignUp;
 use Tests\Support\SolvesAltcha;
 use Tests\TestCase;
 
 class ConsentTest extends TestCase
 {
-    use RefreshDatabase, SolvesAltcha;
+    use OpensSignUp, RefreshDatabase, SolvesAltcha;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->signUpIsOpen();
+    }
 
     public function test_registration_needs_the_consent_box_ticked(): void
     {

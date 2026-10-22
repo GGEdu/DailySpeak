@@ -25,7 +25,8 @@ class Debate extends Model
      */
     protected $attributes = [
         'status' => DebateStatus::Active->value,
-        'flow' => DebateFlow::Classic->value,
+        // Every new debate is guided (App\Services\Guided\DebateStarter); classic is only what older debates have.
+        'flow' => DebateFlow::Guided->value,
     ];
 
     /**
