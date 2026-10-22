@@ -1,6 +1,6 @@
 import { postForm } from './http.js';
 import { extensionFor } from './audio.js';
-import { addMissing, findTurnMessages, latestId, mergeMessages, upsertMessage, withoutPending } from './transcript.js';
+import { addMissing, findTurnMessages, latestId, mergeCorrections, mergeMessages, setCorrectionDismissed, upsertMessage, withoutPending } from './transcript.js';
 
 /**
  * One voice turn as a state machine, apart from the page so it can be tested with fake timers,
@@ -11,10 +11,14 @@ import { addMissing, findTurnMessages, latestId, mergeMessages, upsertMessage, w
  * name it, and an upload sent twice with the same id is stored and answered once. The event of the turn
  * being answered drives the state and the audio; events of other turns only add their messages to the
  * transcript. An event without a `turn` (a server that does not name them yet) is taken as the current turn.
+ *
+ * A guided debate opens with the tutor's question: until it arrives, or OPENING_WAIT_MS runs out, no turn can start
+ * (store.opening is 'waiting'). Corrections of a learner turn arrive apart, are only shown as text, and are never spoken.
  */
 
 export const MIN_TURN_SECONDS = 0.6;
 export const REPLY_TIMEOUT_MS = 130_000;
+export const OPENING_WAIT_MS = 30_000;
 const RELOAD_TIMEOUT_MS = 20_000;
 const MAX_UPLOAD_ATTEMPTS = 2;
 
@@ -29,6 +33,7 @@ export const TEXT = {
     noSpeech: "We couldn't hear anything in that recording. Try again a little closer to the mic.",
     failed: 'Something went wrong while answering that turn. Please try again.',
     ended: 'This debate has already finished, so that turn was not answered.',
+    dismiss: "Couldn't hide that correction, so it is shown again. Please try again.",
 };
 
 /**
@@ -89,14 +94,27 @@ export async function uploadTurn(url, blob, turn = null, send = postForm) {
  * - reload:   () → Promise<messages>, a fresh copy of the transcript from the server
  * - timers:   { setTimeout, clearTimeout }, injectable for tests
  * - newTurnId: () → string, the id of the next turn (random UUIDs; injectable for tests)
+ * - dismiss:  (messageId, index) → Promise, tells the server that a correction is "I didn't say that"
+ * - awaitingOpening: true when the debate is guided and has no messages yet (see waitForOpening)
  */
-export function createDebateTurns({ store, recorder, player, upload, reload, timers = globalThis, newTurnId = randomTurnId }) {
+export function createDebateTurns({
+    store,
+    recorder,
+    player,
+    upload,
+    reload,
+    dismiss,
+    timers = globalThis,
+    newTurnId = randomTurnId,
+    awaitingOpening = false,
+}) {
     let current = null; // the turn being answered: { id, baseline, done, timer, userId }
     const retired = new Set(); // ids of turns that are over: their late events belong to nobody
     const deleted = new Set(); // ids of messages the server deleted; ids are never reused, so old copies cannot bring them back
     let seenEvents = 0; // realtime events so far: a copy fetched while one arrives may predate it
     let speakToken = 0;
     let reloading = null;
+    let openingTimer = null;
 
     const pending = () => (current && !current.done ? current : null);
     const without = (messages) => messages.filter((message) => !deleted.has(message.id));
@@ -214,6 +232,70 @@ export function createDebateTurns({ store, recorder, player, upload, reload, tim
         }
     }
 
+    // The tutor's question. Until it arrives, or the wait runs out, no turn can start: a guided debate is opened by the tutor.
+    function waitForOpening() {
+        if (store.messages.length > 0) {
+            return;
+        }
+
+        timers.clearTimeout(openingTimer);
+        store.opening = 'waiting';
+        openingTimer = timers.setTimeout(endOpeningWait, OPENING_WAIT_MS);
+    }
+
+    function endOpeningWait() {
+        timers.clearTimeout(openingTimer);
+        openingTimer = null;
+        store.opening = null;
+    }
+
+    // The opening is spoken like a reply. Without an audio link (the voice failed) it is only text.
+    function speakOpening(message) {
+        if (message.audio_url) {
+            playReply(message);
+        }
+    }
+
+    function onOpened(event) {
+        seenEvents += 1;
+        const message = { id: event.message_id, role: 'assistant', transcript: event.transcript, audio_url: event.audio_url ?? null };
+        const isNew = !store.messages.some((existing) => existing.id === message.id);
+
+        store.messages = addMissing(store.messages, message);
+        endOpeningWait();
+
+        if (isNew) {
+            speakOpening(message);
+        }
+    }
+
+    // The corrections of a learner message, once its review has run. They are text only: nothing here is spoken.
+    function onLearnerTurnReviewed(event) {
+        seenEvents += 1;
+
+        if (!store.messages.some((message) => message.id === event.message_id)) {
+            refresh().catch(() => {}); // the message has not reached this page: a fresh copy brings it with its corrections
+
+            return;
+        }
+
+        store.messages = store.messages.map((message) =>
+            message.id === event.message_id ? { ...message, corrections: mergeCorrections(message.corrections, event.corrections ?? []) } : message,
+        );
+    }
+
+    // "I didn't say that": the correction leaves at once. If the server does not keep the answer, it comes back with a notice.
+    async function dismissCorrection(messageId, index) {
+        store.messages = setCorrectionDismissed(store.messages, messageId, index, true);
+
+        try {
+            await dismiss(messageId, index);
+        } catch {
+            store.messages = setCorrectionDismissed(store.messages, messageId, index, false);
+            store.notice = { tone: 'error', text: TEXT.dismiss };
+        }
+    }
+
     function withDeadline(promise) {
         let timer;
         const deadline = new Promise((_, reject) => {
@@ -261,7 +343,18 @@ export function createDebateTurns({ store, recorder, player, upload, reload, tim
             }
         }
 
+        // A copy that brings the opening (realtime missed it) releases the wait and speaks the question, as the event would.
+        const opened = store.opening === 'waiting' ? (incoming.find((message) => message.role === 'assistant') ?? null) : null;
+
         store.messages = mergeTranscript(kept, incoming);
+
+        if (store.opening === 'waiting' && store.messages.length > 0) {
+            endOpeningWait();
+        }
+
+        if (opened) {
+            speakOpening(opened);
+        }
 
         if (!found?.reply) {
             return false;
@@ -374,7 +467,7 @@ export function createDebateTurns({ store, recorder, player, upload, reload, tim
         store.notice = null;
 
         if (store.state === 'idle') {
-            return startListening();
+            return store.opening === 'waiting' ? undefined : startListening();
         }
 
         if (store.state === 'listening') {
@@ -452,6 +545,12 @@ export function createDebateTurns({ store, recorder, player, upload, reload, tim
      */
     function dispose() {
         finish(pending());
+        timers.clearTimeout(openingTimer);
+        openingTimer = null;
+    }
+
+    if (awaitingOpening) {
+        waitForOpening();
     }
 
     return {
@@ -460,8 +559,12 @@ export function createDebateTurns({ store, recorder, player, upload, reload, tim
         replay: speak,
         refresh,
         dispose,
+        waitForOpening,
+        dismissCorrection,
         onUserTranscribed,
         onReply,
         onTurnFailed,
+        onOpened,
+        onLearnerTurnReviewed,
     };
 }

@@ -1,7 +1,7 @@
 // node --test resources/js/lib/debateTurn.test.js
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { createDebateTurns, randomTurnId, REPLY_TIMEOUT_MS, TEXT, uploadTurn } from './debateTurn.js';
+import { createDebateTurns, OPENING_WAIT_MS, randomTurnId, REPLY_TIMEOUT_MS, TEXT, uploadTurn } from './debateTurn.js';
 
 function deferred() {
     let resolve;
@@ -63,13 +63,14 @@ const replyEvent = (id, userId, turn) => ({
     turn,
 });
 
-function harness({ messages = [user(10), tutor(11)], duration = 2, turnIds = ['t1', 't2', 't3'] } = {}) {
+function harness({ messages = [user(10), tutor(11)], duration = 2, turnIds = ['t1', 't2', 't3'], awaitingOpening = false } = {}) {
     const clock = fakeClock();
-    const store = { state: 'idle', notice: null, messages };
+    const store = { state: 'idle', notice: null, messages, opening: null };
     const starts = [];
     const plays = [];
     const uploads = [];
     const reloads = [];
+    const dismisses = [];
     const calls = { cancel: 0, stop: 0, stopPlayback: 0 };
     const recorder = {
         start(options) {
@@ -116,11 +117,18 @@ function harness({ messages = [user(10), tutor(11)], duration = 2, turnIds = ['t
 
             return incoming.promise;
         },
+        dismiss: (messageId, index) => {
+            const answer = deferred();
+            dismisses.push({ messageId, index, ...answer });
+
+            return answer.promise;
+        },
         timers: clock,
         newTurnId: () => turnIds.shift(),
+        awaitingOpening,
     });
 
-    return { store, turns, clock, starts, plays, uploads, reloads, calls };
+    return { store, turns, clock, starts, plays, uploads, reloads, dismisses, calls };
 }
 
 // Tap, grant the microphone, tap to send: leaves the page waiting for the tutor.
@@ -667,4 +675,178 @@ test('randomTurnId gives a version 4 UUID, with or without crypto.randomUUID', (
 
     assert.match(randomTurnId(), shape);
     assert.match(randomTurnId({ getRandomValues: (bytes) => bytes.fill(255) }), shape);
+});
+
+// --- The tutor's opening (a guided debate) --------------------------------------------------------------------
+
+const opening = (id = 11, audio = `https://files.test/${id}.mp3`) => ({ message_id: id, transcript: 'Is it fair to ban phones?', audio_url: audio });
+
+test('a guided debate waits for the tutor\'s opening: a tap does not open the microphone', () => {
+    const h = harness({ messages: [], awaitingOpening: true });
+
+    assert.equal(h.store.opening, 'waiting');
+    h.turns.press();
+    assert.equal(h.starts.length, 0);
+    assert.equal(h.store.state, 'idle');
+});
+
+test('the wait ends after 30 seconds without an opening, so the learner can still speak', () => {
+    const h = harness({ messages: [], awaitingOpening: true });
+
+    h.clock.tick(OPENING_WAIT_MS - 1);
+    h.turns.press();
+    assert.equal(h.starts.length, 0);
+
+    h.clock.tick(1);
+    assert.equal(h.store.opening, null);
+    h.turns.press();
+    assert.equal(h.starts.length, 1);
+});
+
+test('the opening arriving is shown, spoken once, and then the learner can answer', async () => {
+    const h = harness({ messages: [], awaitingOpening: true });
+
+    h.turns.onOpened(opening(11));
+    h.turns.onOpened(opening(11)); // the same event again must not speak it twice
+
+    assert.deepEqual(h.store.messages, [{ id: 11, role: 'assistant', transcript: 'Is it fair to ban phones?', audio_url: 'https://files.test/11.mp3' }]);
+    assert.equal(h.store.opening, null);
+    assert.equal(h.plays.length, 1);
+    assert.equal(h.plays[0].url, 'https://files.test/11.mp3');
+
+    h.plays[0].resolve();
+    await flush();
+    assert.equal(h.store.state, 'idle');
+
+    h.turns.press();
+    assert.equal(h.starts.length, 1);
+});
+
+test('an opening without audio is text only: nothing is played and the learner can answer', async () => {
+    const h = harness({ messages: [], awaitingOpening: true });
+
+    h.turns.onOpened(opening(11, null));
+
+    assert.equal(h.store.messages[0].transcript, 'Is it fair to ban phones?');
+    assert.equal(h.plays.length, 0);
+    assert.equal(h.store.state, 'idle');
+    assert.equal(h.store.notice, null);
+
+    h.turns.press();
+    assert.equal(h.starts.length, 1);
+});
+
+test('a fresh copy of the transcript that brings the opening ends the wait and speaks it', async () => {
+    const h = harness({ messages: [], awaitingOpening: true });
+
+    h.turns.refresh();
+    h.reloads[0].resolve([tutor(11, 'Is it fair to ban phones?')]);
+    await flush();
+
+    assert.equal(h.store.opening, null);
+    assert.equal(h.plays.length, 1);
+    assert.equal(h.store.messages.length, 1);
+});
+
+test('the wait is armed again when the brief becomes ready, and counts 30 seconds from then', () => {
+    const h = harness({ messages: [] });
+
+    assert.equal(h.store.opening, null);
+    h.turns.waitForOpening();
+    assert.equal(h.store.opening, 'waiting');
+
+    h.clock.tick(OPENING_WAIT_MS - 1);
+    assert.equal(h.store.opening, 'waiting');
+    h.clock.tick(1);
+    assert.equal(h.store.opening, null);
+});
+
+test('no wait is armed once the transcript has any message', () => {
+    const h = harness({ messages: [user(10), tutor(11)] });
+
+    h.turns.waitForOpening();
+
+    assert.equal(h.store.opening, null);
+});
+
+// --- Corrections, written under the learner's message -------------------------------------------------------
+
+const correction = (index, dismissed = false) => ({ index, original: 'I is sure', better: "I'm sure", note: null, dismissed });
+const review = (messageId, corrections) => ({ debate_id: 3, turn: 't9', message_id: messageId, corrections });
+
+test('a review attaches its corrections to the learner message, and nothing is spoken', () => {
+    const h = harness();
+
+    h.turns.onLearnerTurnReviewed(review(10, [correction(0)]));
+
+    assert.deepEqual(h.store.messages[0].corrections, [correction(0)]);
+    assert.equal(h.plays.length, 0);
+    assert.equal(h.store.state, 'idle');
+    assert.equal(h.reloads.length, 0);
+});
+
+test('a review of a message the transcript does not have asks for a fresh copy', () => {
+    const h = harness();
+
+    h.turns.onLearnerTurnReviewed(review(99, [correction(0)]));
+
+    assert.equal(h.reloads.length, 1);
+    assert.equal(h.store.messages.some((message) => message.id === 99), false);
+});
+
+test('a dismissed correction is hidden at once, and the server is told which one', async () => {
+    const h = harness();
+    h.turns.onLearnerTurnReviewed(review(10, [correction(0), correction(1)]));
+
+    const pending = h.turns.dismissCorrection(10, 0);
+
+    assert.equal(h.store.messages[0].corrections[0].dismissed, true);
+    assert.equal(h.store.messages[0].corrections[1].dismissed, false);
+    assert.deepEqual(
+        h.dismisses.map((call) => [call.messageId, call.index]),
+        [[10, 0]],
+    );
+
+    h.dismisses[0].resolve();
+    await pending;
+    assert.equal(h.store.notice, null);
+    assert.equal(h.store.messages[0].corrections[0].dismissed, true);
+});
+
+test('a dismissal that fails shows the correction again with a notice', async () => {
+    const h = harness();
+    h.turns.onLearnerTurnReviewed(review(10, [correction(0)]));
+
+    const pending = h.turns.dismissCorrection(10, 0);
+    h.dismisses[0].reject(new Error('Server Error'));
+    await pending;
+
+    assert.equal(h.store.messages[0].corrections[0].dismissed, false);
+    assert.deepEqual(h.store.notice, { tone: 'error', text: TEXT.dismiss });
+});
+
+test('a reload while a dismissal is in flight does not show the correction again', async () => {
+    const h = harness();
+    h.turns.onLearnerTurnReviewed(review(10, [correction(0)]));
+
+    const pending = h.turns.dismissCorrection(10, 0);
+    h.turns.refresh();
+    h.reloads[0].resolve([{ ...user(10), corrections: [correction(0)] }, tutor(11)]);
+    await flush();
+
+    assert.equal(h.store.messages[0].corrections[0].dismissed, true);
+
+    h.dismisses[0].resolve();
+    await pending;
+});
+
+test('a reload that predates the review keeps the corrections already shown', async () => {
+    const h = harness();
+    h.turns.onLearnerTurnReviewed(review(10, [correction(0)]));
+
+    h.turns.refresh();
+    h.reloads[0].resolve([{ ...user(10), corrections: null }, tutor(11)]);
+    await flush();
+
+    assert.deepEqual(h.store.messages[0].corrections, [correction(0)]);
 });
