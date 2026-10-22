@@ -9,6 +9,7 @@ use App\Jobs\EvaluateDebate;
 use App\Models\Debate;
 use App\Models\NewsArticle;
 use App\Services\AiBudget;
+use App\Services\Guided\DebateBriefs;
 use App\Services\Guided\DebateStarter;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -33,9 +34,10 @@ class DebateSessionController extends Controller
     /**
      * Show the voice debate screen.
      */
-    public function show(Debate $debate): Response
+    public function show(Debate $debate, DebateBriefs $briefs): Response
     {
-        // Closures, so that the report poll (a partial reload of `debate` only) does not rebuild them.
+        // Closures, so that the report poll (a partial reload of `debate` only) does not rebuild them. The guided
+        // props are closures too: a partial reload evaluates only the ones it names (the client polls the brief).
         return Inertia::render('Debate', [
             'debate' => [
                 ...(new DebateResource($debate))->resolve(),
@@ -43,6 +45,10 @@ class DebateSessionController extends Controller
             ],
             'article' => fn () => (new NewsArticleResource($debate->newsArticle))->resolve(),
             'messages' => fn () => DebateMessageResource::collection($debate->messages()->orderBy('id')->get())->resolve(),
+            'flow' => fn () => $debate->flow->value,
+            'brief' => fn () => $briefs->brief($debate),
+            'briefStatus' => fn () => $briefs->status($debate),
+            'briefFailureReason' => fn () => $briefs->failureReason($debate),
         ]);
     }
 

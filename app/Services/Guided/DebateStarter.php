@@ -15,7 +15,10 @@ use App\Models\User;
  */
 class DebateStarter
 {
-    public function __construct(private GuidedSettings $settings) {}
+    public function __construct(
+        private GuidedSettings $settings,
+        private DebateBriefs $briefs,
+    ) {}
 
     public function start(User $user, NewsArticle $article): Debate
     {
@@ -30,7 +33,14 @@ class DebateStarter
 
         $level = $user->current_level;
 
-        return $user->debates()->createOrFirst($active, $this->attributesFor($level));
+        $debate = $user->debates()->createOrFirst($active, $this->attributesFor($level));
+
+        // Only the request that created the debate starts its brief; a race that lost resumes the winner's.
+        if ($debate->wasRecentlyCreated && $debate->isGuided()) {
+            $this->briefs->prepare($debate);
+        }
+
+        return $debate;
     }
 
     /**

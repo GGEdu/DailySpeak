@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\DebateAudioController;
+use App\Http\Controllers\DebateBriefController;
 use App\Http\Controllers\DebateController;
 use App\Http\Controllers\SaveWordController;
 use App\Http\Controllers\WordLookupController;
@@ -15,6 +16,12 @@ Route::middleware(['auth:sanctum', 'verified'])->group(function () {
 
     Route::post('/news-articles/{newsArticle}/debates', [DebateController::class, 'store'])
         ->name('debates.store');
+
+    // The retry of a guided debate's brief: each attempt is a paid call. The debate's owner only.
+    Route::post('/debates/{debate}/brief', [DebateBriefController::class, 'store'])
+        ->middleware('throttle:debate-brief')
+        ->can('view', 'debate')
+        ->name('debates.brief.store');
 
     // Every upload costs an STT + LLM + TTS round trip, hence the rate limit (admins are exempt).
     Route::post('/debates/{debate}/audio', [DebateAudioController::class, 'store'])
