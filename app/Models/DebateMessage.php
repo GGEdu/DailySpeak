@@ -31,6 +31,7 @@ class DebateMessage extends Model
     {
         return [
             'role' => MessageRole::class,
+            'corrections' => 'array',
         ];
     }
 
@@ -59,6 +60,30 @@ class DebateMessage extends Model
     public function turnId(): ?string
     {
         return $this->audio_path === null ? null : pathinfo($this->audio_path, PATHINFO_FILENAME);
+    }
+
+    /**
+     * The written corrections of a learner's turn, numbered from 0: the index is the one the dismiss route takes.
+     * Null while the turn is not reviewed yet, and for the tutor's messages.
+     *
+     * @return list<array{index: int, original: string, better: string, note: ?string, dismissed: bool}>|null
+     */
+    public function presentedCorrections(): ?array
+    {
+        if ($this->corrections === null) {
+            return null;
+        }
+
+        return collect($this->corrections)
+            ->values()
+            ->map(fn (array $correction, int $index) => [
+                'index' => $index,
+                'original' => $correction['original'],
+                'better' => $correction['better'],
+                'note' => $correction['note'],
+                'dismissed' => $correction['dismissed'],
+            ])
+            ->all();
     }
 
     /**

@@ -1,7 +1,7 @@
 // node --test resources/js/lib/transcript.test.js
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { addMissing, findTurnMessages, latestId, mergeMessages, upsertMessage, withoutPending } from './transcript.js';
+import { addMissing, findTurnMessages, latestId, mergeMessages, setCorrectionDismissed, upsertMessage, visibleCorrections, withoutPending } from './transcript.js';
 
 const user = (id, transcript = 'hello') => ({ id, role: 'user', transcript });
 const tutor = (id, transcript = 'why?') => ({ id, role: 'assistant', transcript, audio_url: `https://files.test/${id}.mp3` });
@@ -76,4 +76,55 @@ test('a late reply to an earlier turn is not the reply of the turn being waited 
 test('messages without a turn never match a turn, not even with a missing turn id', () => {
     assert.deepEqual(findTurnMessages([user(10), tutor(11)], 't1'), { user: null, reply: null });
     assert.deepEqual(findTurnMessages([user(10), { ...user(12), turn: null }], null), { user: null, reply: null });
+});
+
+// --- Corrections ---------------------------------------------------------------------------------------------
+
+const correction = (index, dismissed = false) => ({ index, original: `wrong ${index}`, better: `right ${index}`, note: null, dismissed });
+
+test('a fresh copy without corrections yet keeps the ones already shown', () => {
+    const shown = [{ ...user(12), corrections: [correction(0)] }];
+
+    const merged = mergeMessages(shown, [{ ...user(12), corrections: null }]);
+
+    assert.deepEqual(merged[0].corrections, [correction(0)]);
+});
+
+test('a fresh copy brings the corrections of a message that had none', () => {
+    const merged = mergeMessages([user(12)], [{ ...user(12), corrections: [correction(0)] }]);
+
+    assert.deepEqual(merged[0].corrections, [correction(0)]);
+});
+
+test('a reload never brings back a correction the learner dismissed', () => {
+    const shown = [{ ...user(12), corrections: [correction(0, true), correction(1)] }];
+    const incoming = [{ ...user(12), corrections: [correction(0), correction(1)] }];
+
+    const merged = mergeMessages(shown, incoming);
+
+    assert.deepEqual(merged[0].corrections, [correction(0, true), correction(1)]);
+});
+
+test('a dismissal is kept by a reload that already has it, and a message without corrections keeps none', () => {
+    const merged = mergeMessages([{ ...user(12), corrections: [correction(0, true)] }], [{ ...user(12), corrections: [correction(0, true)] }]);
+
+    assert.deepEqual(merged[0].corrections, [correction(0, true)]);
+    assert.equal('corrections' in mergeMessages([user(10)], [user(10)])[0], false);
+});
+
+test('setting a dismissal flags only that correction and leaves the transcript untouched', () => {
+    const messages = [{ ...user(12), corrections: [correction(0), correction(1)] }, tutor(13)];
+
+    const next = setCorrectionDismissed(messages, 12, 1, true);
+
+    assert.deepEqual(next[0].corrections, [correction(0), correction(1, true)]);
+    assert.equal(next[1], messages[1]);
+    assert.deepEqual(messages[0].corrections, [correction(0), correction(1)], 'the original is not mutated');
+    assert.equal(setCorrectionDismissed(messages, 99, 0, true), messages, 'an unknown message changes nothing');
+});
+
+test('only the corrections that are not dismissed are visible, and no corrections means none', () => {
+    assert.deepEqual(visibleCorrections({ corrections: [correction(0, true), correction(1)] }), [correction(1)]);
+    assert.deepEqual(visibleCorrections({ corrections: null }), []);
+    assert.deepEqual(visibleCorrections({}), []);
 });

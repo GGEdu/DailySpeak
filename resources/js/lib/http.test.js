@@ -1,7 +1,7 @@
 // node --test resources/js/lib/http.test.js
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, test } from 'node:test';
-import { postForm, postJson, requestError, sameOriginPath, xsrfToken } from './http.js';
+import { postAction, postForm, postJson, requestError, sameOriginPath, xsrfToken } from './http.js';
 
 const realFetch = globalThis.fetch;
 
@@ -74,4 +74,25 @@ test('a failed post reports the server message, or the status when there is none
 
     answerWith(new Response('Server Error', { status: 500 }));
     await assert.rejects(postJson('/api/lookups', {}), { status: 500, message: 'Request failed (HTTP 500).' });
+});
+
+test('an action answered with no content is a success, whatever its body (204 has none)', async () => {
+    const requests = answerWith(new Response(null, { status: 204 }));
+
+    await postAction('/api/debates/3/messages/12/corrections/0/dismiss');
+
+    assert.equal(requests[0].init.method, 'POST');
+    assert.equal(requests[0].init.credentials, 'same-origin');
+    assert.equal(requests[0].init.headers['X-XSRF-TOKEN'], 'token123');
+
+    answerWith(new Response(JSON.stringify({ status: 'preparing' }), { status: 202 }));
+    await postAction('/api/debates/3/brief');
+});
+
+test('a failed action reports the server message and status, or the status alone when there is no body', async () => {
+    answerWith(new Response(JSON.stringify({ message: 'Not yours.' }), { status: 403 }));
+    await assert.rejects(postAction('/api/debates/3/brief'), { status: 403, message: 'Not yours.' });
+
+    answerWith(new Response('Server Error', { status: 500 }));
+    await assert.rejects(postAction('/api/debates/3/brief'), { status: 500, message: 'Request failed (HTTP 500).' });
 });

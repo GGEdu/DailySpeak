@@ -8,6 +8,7 @@ use App\Models\Debate;
 use App\Models\NewsArticle;
 use App\Models\User;
 use App\Models\UserVocabulary;
+use App\Services\Guided\DebateStarter;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -53,8 +54,8 @@ class UserTest extends TestCase
         $user = User::factory()->create();
         $article = NewsArticle::factory()->create();
 
-        $first = $user->startDebate($article);
-        $second = $user->startDebate($article);
+        $first = app(DebateStarter::class)->start($user, $article);
+        $second = app(DebateStarter::class)->start($user, $article);
 
         $this->assertTrue($first->is($second));
         $this->assertSame(1, $user->debates()->count());
@@ -66,7 +67,7 @@ class UserTest extends TestCase
         $article = NewsArticle::factory()->create();
         Debate::factory()->completed()->for($user)->for($article)->create();
 
-        $debate = $user->startDebate($article);
+        $debate = app(DebateStarter::class)->start($user, $article);
 
         $this->assertSame(DebateStatus::Active, $debate->status);
         $this->assertSame(2, $user->debates()->count());
@@ -87,7 +88,7 @@ class UserTest extends TestCase
             }
         });
 
-        $debate = $user->startDebate($article);
+        $debate = app(DebateStarter::class)->start($user, $article);
 
         $this->assertNotNull($winner);
         $this->assertTrue($debate->is($winner));

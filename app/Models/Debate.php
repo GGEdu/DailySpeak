@@ -2,7 +2,9 @@
 
 namespace App\Models;
 
+use App\Enums\DebateFlow;
 use App\Enums\DebateStatus;
+use App\Enums\EnglishLevel;
 use Database\Factories\DebateFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -10,7 +12,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-#[Fillable(['user_id', 'news_article_id', 'status', 'ai_feedback', 'started_at', 'ended_at'])]
+#[Fillable(['user_id', 'news_article_id', 'status', 'flow', 'level', 'ai_feedback', 'started_at', 'ended_at'])]
 class Debate extends Model
 {
     /** @use HasFactory<DebateFactory> */
@@ -23,6 +25,7 @@ class Debate extends Model
      */
     protected $attributes = [
         'status' => DebateStatus::Active->value,
+        'flow' => DebateFlow::Classic->value,
     ];
 
     /**
@@ -34,6 +37,9 @@ class Debate extends Model
     {
         return [
             'status' => DebateStatus::class,
+            'flow' => DebateFlow::class,
+            // The brief's level, set for guided debates only (see DebateBrief::forDebate()).
+            'level' => EnglishLevel::class,
             'ai_feedback' => 'array',
             'started_at' => 'datetime',
             'ended_at' => 'datetime',
@@ -74,6 +80,14 @@ class Debate extends Model
     public function isActive(): bool
     {
         return $this->status === DebateStatus::Active;
+    }
+
+    /**
+     * Whether the debate runs the guided flow (fixed when it started).
+     */
+    public function isGuided(): bool
+    {
+        return $this->flow === DebateFlow::Guided;
     }
 
     /**

@@ -48,4 +48,21 @@ class DebateMessageFactory extends Factory
             'audio_path' => 'debates/assistant/'.fake()->uuid().'.mp3',
         ]);
     }
+
+    /**
+     * Indicate that the learner's turn was reviewed, with these written corrections (see App\Models\DebateMessage).
+     *
+     * @param  list<array{original: string, better: string, note?: ?string, dismissed?: bool}>  $corrections
+     */
+    public function reviewed(array $corrections): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'corrections' => array_map(fn (array $correction) => [
+                'original' => $correction['original'],
+                'better' => $correction['better'],
+                'note' => $correction['note'] ?? null,
+                'dismissed' => $correction['dismissed'] ?? false,
+            ], $corrections),
+        ]);
+    }
 }

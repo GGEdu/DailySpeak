@@ -114,6 +114,39 @@ return [
         'max_characters' => 10000,
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Guided Debate
+    |--------------------------------------------------------------------------
+    |
+    | The guided flow starts from a brief of the article (headline, what happened, why it matters, the two sides and
+    | the debate question), opens with that question, and reviews the learner's turns in writing. An admin turns it
+    | on per level on /admin/limits (app_settings guided_debate.B1, .B2, .C1); `levels` is the default until one is
+    | saved. A debate keeps the flow it started with.
+    |
+    */
+
+    'guided' => [
+        'levels' => array_values(array_filter(array_map('trim', explode(',', (string) env('DEBATE_GUIDED_LEVELS', 'B1'))))),
+
+        // The brief is written once per article and level, in a single call. An empty provider uses the news
+        // summariser's (config/news.php, ai), and so does an empty model when the provider is also empty; a provider
+        // of its own never inherits the news model.
+        'brief' => [
+            'provider' => env('DEBATE_BRIEF_PROVIDER') ?: null,
+            'model' => env('DEBATE_BRIEF_MODEL') ?: null,
+            'timeout' => $positive('DEBATE_BRIEF_TIMEOUT', 60),
+        ],
+
+        // The written corrections of one learner turn: a short call that runs beside the tutor's answer. Empty values
+        // fall back to the tutor's provider and model, as the fluency report does.
+        'review' => [
+            'provider' => env('DEBATE_REVIEW_PROVIDER') ?: null,
+            'model' => env('DEBATE_REVIEW_MODEL') ?: null,
+            'timeout' => $positive('DEBATE_REVIEW_TIMEOUT', 30),
+        ],
+    ],
+
     'tts' => [
         'provider' => env('DEBATE_TTS_PROVIDER', 'openai'),
         'model' => env('DEBATE_TTS_MODEL') ?: null,

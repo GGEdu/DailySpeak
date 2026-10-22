@@ -1,6 +1,8 @@
 <?php
 
+use App\Enums\EnglishLevel;
 use App\Http\Controllers\AccountController;
+use App\Http\Controllers\Admin\GuidedDebateController;
 use App\Http\Controllers\Admin\LimitsController;
 use App\Http\Controllers\Admin\NewsSourceController;
 use App\Http\Controllers\Auth\AltchaChallengeController;
@@ -117,4 +119,9 @@ Route::middleware(['auth', 'verified', 'can:admin'])->prefix('admin')->name('adm
     Route::get('/limits', [LimitsController::class, 'index'])->name('limits.index');
     Route::put('/limits/{key}', [LimitsController::class, 'update'])->name('limits.update');
     Route::post('/limits/{key}/reset', [LimitsController::class, 'reset'])->name('limits.reset');
+
+    // The guided debate switch per English level (App\Services\Guided\GuidedSettings).
+    Route::put('/guided-debate/{level}', [GuidedDebateController::class, 'update'])
+        ->whereIn('level', array_column(EnglishLevel::cases(), 'value'))
+        ->name('guided-debate.update');
 });
