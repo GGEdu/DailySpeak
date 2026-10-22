@@ -4,10 +4,13 @@ namespace App\Http\Controllers\Auth;
 
 use App\Enums\EnglishLevel;
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\ConsentController;
 use App\Models\User;
+use App\Services\Captcha\AltchaChallenges;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Password;
@@ -29,16 +32,22 @@ class RegisteredUserController extends Controller
     /**
      * Create the account and log the user in.
      */
-    public function store(Request $request): RedirectResponse
+    public function store(Request $request, AltchaChallenges $challenges): RedirectResponse
     {
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'string', 'lowercase', 'email', 'max:255', Rule::unique(User::class)],
             'password' => ['required', 'confirmed', Password::defaults()],
             'current_level' => ['required', Rule::enum(EnglishLevel::class)],
-        ]);
+            // GDPR: the voice and the texts go to AI providers, so the user must accept that notice themselves.
+            'consent' => ['accepted'],
+        ], ['consent.accepted' => ConsentController::NOT_ACCEPTED]);
 
-        $user = User::create($validated);
+        // After the form itself is valid, so a typo in another field does not use up the human check.
+        $challenges->ensureSolved($request->input('altcha'));
+
+        $user = User::create(Arr::except($validated, ['consent']));
+        $user->recordConsent();
 
         event(new Registered($user));
 

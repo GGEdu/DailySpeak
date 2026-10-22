@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
+use App\Services\Captcha\AltchaChallenges;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Password;
@@ -22,11 +23,14 @@ class PasswordResetLinkController extends Controller
     /**
      * Email a password reset link to the user.
      */
-    public function store(Request $request): RedirectResponse
+    public function store(Request $request, AltchaChallenges $challenges): RedirectResponse
     {
         $request->validate([
             'email' => ['required', 'string', 'email'],
         ]);
+
+        // Every address this form is given gets an email, so it needs the human check too.
+        $challenges->ensureSolved($request->input('altcha'));
 
         Password::sendResetLink($request->only('email'));
 

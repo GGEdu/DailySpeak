@@ -1,5 +1,6 @@
 <script setup>
 import { Head, Link, useForm } from '@inertiajs/vue3';
+import AltchaCheck from '../../components/AltchaCheck.vue';
 import TextField from '../../components/TextField.vue';
 import GuestLayout from '../../layouts/GuestLayout.vue';
 
@@ -13,6 +14,8 @@ const form = useForm({
     current_level: 'B2',
     password: '',
     password_confirmation: '',
+    consent: false,
+    altcha: '',
 });
 
 const submit = () => form.post('/register', { onFinish: () => form.reset('password', 'password_confirmation') });
@@ -53,6 +56,21 @@ const submit = () => form.post('/register', { onFinish: () => form.reset('passwo
                 :error="form.errors.password"
             />
             <TextField v-model="form.password_confirmation" label="Confirm password" type="password" autocomplete="new-password" required />
+
+            <div class="space-y-2">
+                <label class="flex items-start gap-3 text-sm leading-relaxed text-ink-300">
+                    <input v-model="form.consent" type="checkbox" name="consent" required class="mt-1 size-4 shrink-0 accent-speaking" />
+                    <span>
+                        I agree that my voice and my texts are sent to AI service providers so that the tutor can work.
+                        <a href="/privacy" target="_blank" rel="noopener" class="font-medium text-ink-100 underline-offset-4 hover:underline">
+                            Read the privacy notice (opens in a new tab)
+                        </a>
+                    </span>
+                </label>
+                <p v-if="form.errors.consent" role="alert" class="text-xs text-listening">{{ form.errors.consent }}</p>
+            </div>
+
+            <AltchaCheck v-model="form.altcha" :error="form.errors.altcha" />
 
             <button
                 type="submit"

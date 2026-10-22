@@ -58,6 +58,8 @@ class SecurityHeaders
         return implode('; ', [
             "default-src 'self'",
             "script-src 'self' 'nonce-{$nonce}'",
+            // The ALTCHA widget runs its proof of work in workers it starts from blob: URLs (nothing else).
+            "worker-src 'self' blob:",
             "style-src 'self' 'unsafe-inline'",
             'connect-src '.implode(' ', ["'self'", ...$this->reverbSources()]),
             "img-src 'self' data:",

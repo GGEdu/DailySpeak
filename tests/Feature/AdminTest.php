@@ -12,11 +12,12 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
+use Tests\Support\SolvesAltcha;
 use Tests\TestCase;
 
 class AdminTest extends TestCase
 {
-    use RefreshDatabase;
+    use RefreshDatabase, SolvesAltcha;
 
     public function test_regular_users_are_rate_limited_on_voice_turns(): void
     {
@@ -52,14 +53,15 @@ class AdminTest extends TestCase
 
     public function test_admin_rights_cannot_be_self_assigned_when_signing_up(): void
     {
-        $this->post('/register', [
+        $this->post('/register', $this->withAltcha([
             'name' => 'Mallory',
             'email' => 'mallory@example.com',
             'current_level' => 'B2',
             'password' => 'a-strong-password',
             'password_confirmation' => 'a-strong-password',
             'is_admin' => true,
-        ])->assertRedirect('/email/verify');
+            'consent' => true,
+        ]))->assertRedirect('/email/verify');
 
         $this->assertFalse(User::firstWhere('email', 'mallory@example.com')->is_admin);
     }

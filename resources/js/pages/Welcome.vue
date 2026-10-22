@@ -75,5 +75,9 @@ const features = [
                 </div>
             </div>
         </main>
+
+        <footer class="relative mx-auto max-w-6xl px-5 pb-10 text-center text-xs text-ink-500 sm:px-8">
+            <Link href="/privacy" class="hover:text-ink-300 underline-offset-4 hover:underline">Privacy notice</Link>
+        </footer>
     </div>
 </template>

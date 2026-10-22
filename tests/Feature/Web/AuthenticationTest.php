@@ -9,11 +9,12 @@ use App\Providers\AppServiceProvider;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Inertia\Testing\AssertableInertia as Assert;
+use Tests\Support\SolvesAltcha;
 use Tests\TestCase;
 
 class AuthenticationTest extends TestCase
 {
-    use RefreshDatabase;
+    use RefreshDatabase, SolvesAltcha;
 
     public function test_guests_see_the_landing_page(): void
     {
@@ -60,13 +61,14 @@ class AuthenticationTest extends TestCase
             ->component('auth/Register')
             ->where('levels', ['B1', 'B2', 'C1']));
 
-        $this->post('/register', [
+        $this->post('/register', $this->withAltcha([
             'name' => 'Ada Lovelace',
             'email' => 'ada@example.com',
             'current_level' => 'C1',
+            'consent' => true,
             'password' => 'a-strong-password',
             'password_confirmation' => 'a-strong-password',
-        ])->assertRedirect('/email/verify');
+        ]))->assertRedirect('/email/verify');
 
         $user = User::firstWhere('email', 'ada@example.com');
         $this->assertSame(EnglishLevel::C1, $user->current_level);
@@ -77,13 +79,14 @@ class AuthenticationTest extends TestCase
     {
         User::factory()->create(['email' => 'taken@example.com']);
 
-        $this->post('/register', [
+        $this->post('/register', $this->withAltcha([
             'name' => '',
             'email' => 'taken@example.com',
             'current_level' => 'A1',
+            'consent' => true,
             'password' => 'one',
             'password_confirmation' => 'two',
-        ])->assertSessionHasErrors(['name', 'email', 'current_level', 'password']);
+        ]))->assertSessionHasErrors(['name', 'email', 'current_level', 'password']);
 
         $this->assertGuest();
     }
@@ -203,12 +206,13 @@ class AuthenticationTest extends TestCase
      */
     private function registration(string $email, string $password = 'a-strong-password'): array
     {
-        return [
+        return $this->withAltcha([
             'name' => 'Ada Lovelace',
             'email' => $email,
             'current_level' => 'C1',
             'password' => $password,
             'password_confirmation' => $password,
-        ];
+            'consent' => true,
+        ]);
     }
 }

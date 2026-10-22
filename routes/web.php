@@ -3,13 +3,16 @@
 use App\Http\Controllers\AccountController;
 use App\Http\Controllers\Admin\LimitsController;
 use App\Http\Controllers\Admin\NewsSourceController;
+use App\Http\Controllers\Auth\AltchaChallengeController;
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\Auth\EmailVerificationController;
 use App\Http\Controllers\Auth\NewPasswordController;
 use App\Http\Controllers\Auth\PasswordResetLinkController;
 use App\Http\Controllers\Auth\RegisteredUserController;
+use App\Http\Controllers\ConsentController;
 use App\Http\Controllers\DebateSessionController;
 use App\Http\Controllers\FeedController;
+use App\Http\Controllers\PrivacyController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\VocabularyController;
 use Illuminate\Support\Facades\Route;
@@ -19,6 +22,9 @@ Route::get('/', function () {
     return auth()->check() ? to_route('feed') : Inertia::render('Welcome');
 })->name('home');
 
+// The privacy notice: public, so it can be read before signing up.
+Route::get('/privacy', [PrivacyController::class, 'show'])->name('privacy');
+
 Route::middleware('guest')->group(function () {
     Route::get('/login', [AuthenticatedSessionController::class, 'create'])->name('login');
     Route::post('/login', [AuthenticatedSessionController::class, 'store'])
@@ -27,6 +33,12 @@ Route::middleware('guest')->group(function () {
     Route::get('/register', [RegisteredUserController::class, 'create'])->name('register');
     Route::post('/register', [RegisteredUserController::class, 'store'])
         ->middleware(['throttle:6,1', 'throttle:register']);
+
+    // The human check's challenge. Each sign-up or reset page loads one. Its own counter (the third argument):
+    // an unnamed throttle shares one per visitor with the 6-a-minute forms, and reloading would lock sign-up.
+    Route::get('/altcha/challenge', [AltchaChallengeController::class, 'show'])
+        ->middleware('throttle:20,1,altcha')
+        ->name('altcha.challenge');
 
     Route::get('/forgot-password', [PasswordResetLinkController::class, 'create'])->name('password.request');
     Route::post('/forgot-password', [PasswordResetLinkController::class, 'store'])
@@ -58,6 +70,10 @@ Route::middleware('auth')->group(function () {
     Route::delete('/settings/account', [AccountController::class, 'destroy'])
         ->middleware('throttle:6,1') // the password check is a guess target
         ->name('account.destroy');
+
+    // Accounts that signed up before the notice accept it here, once (see EnsureEmailVerifiedAndConsented).
+    Route::get('/consent', [ConsentController::class, 'show'])->name('consent.show');
+    Route::post('/consent', [ConsentController::class, 'store'])->name('consent.store');
 });
 
 // Everything else needs a confirmed address: open sign-up must not mean open access to the AI budget.

@@ -34,6 +34,9 @@ class AccountExportTest extends TestCase
         $this->assertSame('Ana', $data['profile']['name']);
         $this->assertSame($user->email, $data['profile']['email']);
         $this->assertSame('C1', $data['profile']['current_level']);
+        // What the user agreed to, and when: part of their data too.
+        $this->assertSame($user->consented_at->toIso8601String(), $data['profile']['consented_at']);
+        $this->assertSame($user->consent_version, $data['profile']['consent_version']);
 
         $this->assertCount(1, $data['debates']);
         $this->assertSame('completed', $data['debates'][0]['status']);

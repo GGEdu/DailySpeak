@@ -56,6 +56,8 @@ class SecurityHeadersTest extends TestCase
         $this->assertSame(["'self'"], $policy['default-src']);
         $this->assertSame(["'self'", "'nonce-".Vite::cspNonce()."'"], $policy['script-src']);
         $this->assertNotEmpty(Vite::cspNonce());
+        // The ALTCHA widget's proof-of-work workers start from blob: URLs, and nothing else may run as a worker.
+        $this->assertSame(["'self'", 'blob:'], $policy['worker-src']);
         $this->assertSame(["'self'", "'unsafe-inline'"], $policy['style-src']);
         $this->assertSame(["'self'", 'data:'], $policy['img-src']);
         $this->assertSame(["'self'", 'blob:'], $policy['media-src']);
