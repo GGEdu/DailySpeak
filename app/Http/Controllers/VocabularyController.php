@@ -33,9 +33,10 @@ class VocabularyController extends Controller
     public function index(Request $request): Response
     {
         return Inertia::render('Vocabulary', [
-            'stats' => $this->stats($request),
+            // Closures: a partial reload that does not send them (the meaning of one word) runs none of their queries.
+            'stats' => fn () => $this->stats($request),
             // The card shows the meaning, so each due word carries its analysis.
-            'due' => $this->vocabularies($request)
+            'due' => fn () => $this->vocabularies($request)
                 ->due()
                 ->orderBy('next_review_at')
                 ->limit(self::DUE_LIMIT)

@@ -3,9 +3,12 @@
 namespace Tests\Feature\Web;
 
 use App\Ai\Agents\WordExplainer;
+use App\Http\Middleware\HandleInertiaRequests;
 use App\Models\User;
 use App\Models\UserVocabulary;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Inertia\Testing\AssertableInertia as Assert;
 use RuntimeException;
 use Tests\Feature\Api\WordLookupTest;
@@ -127,6 +130,25 @@ class VocabularyTest extends TestCase
                 ->reloadOnly('explanation', fn (Assert $page) => $page
                     ->where('explanation.id', null)
                     ->where('explanation.analysis', null)));
+    }
+
+    public function test_a_partial_reload_runs_only_the_query_of_what_it_sends(): void
+    {
+        $word = UserVocabulary::factory()->create(['analysis' => ['definition' => 'A subtle difference.']]);
+        $version = (string) (new HandleInertiaRequests)->version(Request::create('/'));
+
+        // Asking for one meaning must not count the stats or load the due cards: they are not sent in this reload.
+        DB::enableQueryLog();
+        $props = $this->actingAs($word->user)
+            ->withHeaders(['X-Inertia' => 'true', 'X-Inertia-Version' => $version, 'X-Inertia-Partial-Component' => 'Vocabulary', 'X-Inertia-Partial-Data' => 'explanation'])
+            ->get("/vocabulary?explain={$word->id}")
+            ->assertOk()
+            ->json('props');
+        $queries = collect(DB::getQueryLog())->pluck('query')->filter(fn (string $sql) => str_contains($sql, 'user_vocabularies'));
+        DB::disableQueryLog();
+
+        $this->assertSame($word->id, $props['explanation']['id']);
+        $this->assertCount(1, $queries);
     }
 
     public function test_reviewing_a_word_records_the_answer(): void
