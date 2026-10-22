@@ -31,6 +31,8 @@ const submit = () => form.post('/reset-password', { onFinish: () => form.reset('
                 autocomplete="new-password"
                 required
                 autofocus
+                minlength="12"
+                hint="At least 12 characters."
                 :error="form.errors.password"
             />
             <TextField v-model="form.password_confirmation" label="Confirm new password" type="password" autocomplete="new-password" required />

@@ -42,7 +42,16 @@ const submit = () => form.post('/register', { onFinish: () => form.reset('passwo
                 <p v-if="form.errors.current_level" class="mt-1.5 text-xs text-listening">{{ form.errors.current_level }}</p>
             </fieldset>
 
-            <TextField v-model="form.password" label="Password" type="password" autocomplete="new-password" required :error="form.errors.password" />
+            <TextField
+                v-model="form.password"
+                label="Password"
+                type="password"
+                autocomplete="new-password"
+                required
+                minlength="12"
+                hint="At least 12 characters."
+                :error="form.errors.password"
+            />
             <TextField v-model="form.password_confirmation" label="Confirm password" type="password" autocomplete="new-password" required />
 
             <button
