@@ -24,6 +24,7 @@ test('a page without flow, brief or briefStatus is the classic one: no brief, no
     assert.equal(props.flow.default, 'classic');
     assert.equal(props.brief.default, null);
     assert.equal(props.briefStatus.default, null);
+    assert.equal(props.briefFailureReason.default, null);
 });
 
 test('the props the page already had keep their shape, and the guided ones are optional', () => {
@@ -35,4 +36,5 @@ test('the props the page already had keep their shape, and the guided ones are o
     assert.equal(props.flow.required, undefined);
     assert.equal(props.brief.required, undefined);
     assert.equal(props.briefStatus.required, undefined);
+    assert.equal(props.briefFailureReason.required, undefined);
 });

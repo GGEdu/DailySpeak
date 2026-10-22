@@ -25,7 +25,8 @@ configureRealtime();
 
 defineOptions({ layout: AppLayout });
 
-// flow, brief and briefStatus come from DebateSessionController::show. Without them the page is the classic one.
+// flow, brief, briefStatus and briefFailureReason come from DebateSessionController::show. Without them the page is
+// the classic one.
 const props = defineProps({
     debate: { type: Object, required: true },
     article: { type: Object, required: true },
@@ -33,11 +34,14 @@ const props = defineProps({
     flow: { type: String, default: 'classic' },
     brief: { type: Object, default: null },
     briefStatus: { type: String, default: null },
+    briefFailureReason: { type: String, default: null }, // "budget" or "failed" while briefStatus is "failed"
 });
 
 const MAX_TURN_SECONDS = 60;
 const REPORT_POLL_MS = 3_000;
 const REPORT_TIMEOUT_MS = 120_000;
+// A brief that is still being prepared after this long (a lost job, a slow model) no longer holds the learner back.
+const BRIEF_WAIT_MS = 60_000;
 const TRANSCRIPT_POLL_MS = 5_000; // while the realtime channel is not live
 const BRIEF_POLL_MS = 5_000; // fallback only: DebateBriefReady can be sent while the channel is still connecting
 const SKIP_SPACE_TARGETS = 'input, textarea, select, button, a, summary, [role=button], [tabindex], [contenteditable]';
@@ -76,12 +80,16 @@ const canFinish = computed(
 const isGuided = computed(() => props.flow === 'guided');
 const brief = ref(props.brief);
 const briefStatus = ref(props.briefStatus);
-const briefFailure = ref(null); // the reason of DebateBriefFailed: "budget" or "failed"
+const briefFailure = ref(props.briefFailureReason); // "budget" or "failed", from the props or DebateBriefFailed
 const briefBusy = ref(false);
 const briefError = ref(null);
 const briefPreparing = computed(() => briefStatus.value === 'preparing');
-// The turn cannot start while the tutor has not opened the debate (store.opening), nor while its brief is being prepared.
-const holding = computed(() => state.value === 'idle' && (opening.value === 'waiting' || briefPreparing.value));
+const briefWaitOver = ref(false);
+// The turn cannot start while the tutor has not opened the debate (store.opening), nor while its brief is being
+// prepared, for up to BRIEF_WAIT_MS: after that the learner may speak without the question.
+const holding = computed(
+    () => state.value === 'idle' && (opening.value === 'waiting' || (briefPreparing.value && !briefWaitOver.value)),
+);
 
 const analyser = computed(() => {
     if (state.value === 'listening') return recorder.analyser.value;
@@ -197,10 +205,26 @@ watchEffect((onCleanup) => {
         return;
     }
 
-    const poll = setInterval(() => router.reload({ only: ['brief', 'briefStatus'], async: true, showProgress: false }), BRIEF_POLL_MS);
+    const poll = setInterval(
+        () => router.reload({ only: ['brief', 'briefStatus', 'briefFailureReason'], async: true, showProgress: false }),
+        BRIEF_POLL_MS,
+    );
+    const giveUp = setTimeout(() => {
+        briefWaitOver.value = true;
+    }, BRIEF_WAIT_MS);
 
-    onCleanup(() => clearInterval(poll));
+    onCleanup(() => {
+        clearInterval(poll);
+        clearTimeout(giveUp);
+    });
 });
+
+watch(
+    () => props.briefFailureReason,
+    (value) => {
+        if (value) briefFailure.value = value;
+    },
+);
 
 watch(
     () => props.brief,
@@ -417,7 +441,8 @@ onBeforeUnmount(() => {
                 </div>
             </details>
 
-            <div class="mt-6 rounded-2xl border border-white/8 bg-ink-900/60 p-5">
+            <!-- The guided brief lists its own key words: the article's would repeat them. -->
+            <div v-if="!isGuided" class="mt-6 rounded-2xl border border-white/8 bg-ink-900/60 p-5">
                 <p class="text-xs font-semibold tracking-wide text-ink-400 uppercase">Try to use these</p>
                 <VocabularyChips :words="article.key_vocabulary" class="mt-3" />
             </div>
