@@ -122,8 +122,8 @@ El system prompt del tutor está en `config/prompts.php` (`debate_tutor`).
 
 ### Debate guiado
 
-Un debate guiado (por nivel, desde **/admin/limits** → «Guided debate»; por defecto solo B1,
-`DEBATE_GUIDED_LEVELS`) cambia el arranque y el feedback, no el turno de voz:
+Todo debate nuevo es guiado, en cualquier nivel y sin interruptor. Cambia el arranque y el feedback, no el turno de
+voz:
 
 1. **Resumen del debate**, con estructura fija y en el nivel del alumno: Headline, What happened, Why it matters,
    Background (solo lo que dice el artículo; si no hay, no aparece), Two sides, The debate question y Key words. Se
@@ -137,8 +137,8 @@ Un debate guiado (por nivel, desde **/admin/limits** → «Guided debate»; por 
    paralelo sin retrasar la voz (`LearnerTurnReviewed`, `DEBATE_REVIEW_PROVIDER`/`_MODEL`). Se descartan con «I didn't
    say that»; las que no, entran en el informe final.
 
-Cada debate guarda su flujo (`debates.flow`): cambiar el ajuste no afecta a los que están en curso. El resumen y la
-revisión de cada turno gastan del tope diario de IA. El análisis del diseño está en `docs/diseno-flujo-debate.md`.
+Cada debate guarda su flujo (`debates.flow`): los antiguos, sin guiar, se siguen viendo como eran. El resumen del
+debate lo paga la plataforma (se comparte entre usuarios); la revisión de cada turno, quien debate. El análisis del diseño está en `docs/diseno-flujo-debate.md`.
 
 ### Latencia
 
@@ -201,10 +201,12 @@ Aplicado:
 - Las transcripciones y los informes se conservan mientras exista la cuenta (`PRIVACY_TRANSCRIPTS_RETENTION_DAYS=0`, sin caducidad).
 - En *Settings*, el usuario puede **descargar sus datos** (JSON con perfil, debates, transcripciones, informes y vocabulario; sin audio) y **borrar su cuenta** con su contraseña: se borran en cascada debates, mensajes, vocabulario, sesiones y tokens, y los ficheros de audio de sus debates.
 - Las grabaciones se guardan en disco privado y solo se sirven con URLs firmadas que caducan.
+- Las claves de IA de cada usuario se guardan cifradas con `APP_KEY`, nunca se devuelven (solo los 4 últimos
+  caracteres) y se borran con la cuenta. El registro de uso (`ai_usage`) no guarda contenido.
 
 Pendiente de ampliar:
 
-- [ ] Consentimiento explícito al registrarse (tratamiento de voz y envío a proveedores de IA).
+- [x] Consentimiento explícito al registrarse (tratamiento de voz y envío a proveedores de IA), con `/privacy`; las cuentas antiguas lo aceptan una vez.
 - [ ] Transferencias internacionales: el audio y las transcripciones se envían a OpenAI/Google/NVIDIA; revisar contratos (DPA) y la base legal.
 - [x] Borrado de cuenta por el usuario y exportación de sus datos.
 - [ ] Decidir un plazo de conservación de las transcripciones (hoy, mientras exista la cuenta).
@@ -262,7 +264,7 @@ No uses el driver `openai` para el texto: llama a la Responses API (`/responses`
 
 | Variable | Por defecto | Qué hace |
 |---|---|---|
-| `AI_DAILY_GLOBAL_LIMIT` | `1000` | Llamadas de IA al día entre todos los usuarios (traducciones, análisis, turnos de voz, informes). Los admins no cuentan. Al agotarse se registra un `critical` |
+| `AI_DAILY_GLOBAL_LIMIT` | `1000` | Llamadas de IA al día que paga la plataforma entre todos los usuarios; lo que cada uno paga con su clave no cuenta, ni los admins. Se cambia en `/admin/limits`. Al agotarse se registra un `critical` |
 | `REGISTRATIONS_PER_IP_PER_DAY` | `10` | Cuentas nuevas por IP y día |
 | `HORIZON_NOTIFICATIONS_EMAIL` | vacía | Correo para los avisos de Horizon (esperas largas y trabajos fallidos, uno por clase cada 15 min); vacía, sin correo (los fallos se registran igual como `critical`) |
 | `HEALTHCHECKS_SCHEDULER_URL` | vacía | Latido del scheduler cada minuto |
@@ -270,12 +272,47 @@ No uses el driver `openai` para el texto: llama a la Responses API (`/responses`
 
 Cada tarea programada guarda su salida en `storage/logs/schedule-*.log` (conviene rotarlos) y deja un `critical` en el log si falla. Las contraseñas tienen 12 caracteres como mínimo (y en producción se comprueban contra filtraciones conocidas); el login admite 6 intentos por minuto por email e IP y 30 por hora por email.
 
+## Plataforma multiusuario: cada usuario con su clave (BYOK)
+
+Una instalación sirve a varios usuarios y cada uno paga su uso con su propia clave. El análisis está en
+`docs/analisis-multiusuario-byok.md`.
+
+| Lo paga | Qué |
+|---|---|
+| **El usuario**, con su clave | El turno de voz (STT, tutor y TTS), las traducciones, la revisión de cada turno, el análisis de palabras y el informe final |
+| **La plataforma**, con la clave del `.env` o de `/admin/ai` | Los resúmenes de la recogida de noticias y el resumen del debate por artículo y nivel, que se comparten entre usuarios |
+
+- **Settings → AI:** cada usuario guarda la clave de un proveedor (se prueba al guardarla, pidiendo la lista de
+  modelos, sin gastar tokens) y elige proveedor y modelo para cada tarea: `conversation`, `writing`, `stt` y `tts`
+  (con su voz).
+- **Lista cerrada de proveedores** (`App\Services\Ai\ProviderCatalog`): OpenAI (texto, STT y TTS), Groq (texto y
+  STT), OpenRouter, Gemini, Anthropic, DeepSeek y Mistral, cada uno con su URL HTTPS fija. No hay URL libre: una
+  dirección a elección del usuario sería una salida a la red interna.
+- **Sin respaldo silencioso:** quien no tiene clave para una tarea solo usa la de la plataforma si es admin o si un
+  admin le activa «Platform AI» en `/admin/users`. Si no, la web le pide la clave y la API responde 409
+  `{ code: "ai_not_configured" }`. Mientras quien puede usar la plataforma no elige proveedor para una tarea, esa tarea va por la plataforma.
+- **Por llamada:** el cliente de IA se crea donde corre el trabajo (`Ai::build()`), nunca en la configuración global
+  del proceso, y los jobs llevan ids, no claves. Así un worker de Horizon no puede usar la clave de un usuario para
+  otro.
+- **Settings → Usage:** las llamadas del mes por tarea y quién las pagó, las 20 últimas (sin contenido) y un tope
+  mensual propio opcional; al llegar, 429 `{ code: "ai_cap_reached" }`.
+- **Settings → Sources:** cada usuario oculta las fuentes que no quiere ver en su feed. El catálogo lo gestiona el
+  admin.
+
 ## Administradores
 
 ```bash
 ./vendor/bin/sail artisan user:admin tu@email.com            # conceder
 ./vendor/bin/sail artisan user:admin tu@email.com --revoke   # retirar
 ```
+
+**La primera cuenta es la del dueño:** en una instalación vacía el registro está abierto, la primera cuenta queda como
+administradora con el correo ya verificado (puede no haber correo configurado) y después el registro se cierra. Se
+abre y se cierra en **/admin** («Registration»); cerrado, `/register` lo dice y `POST /register` responde 403.
+
+El panel **/admin** («Platform» en el menú) reúne: Overview, Users (cuentas con su uso y errores del mes, sin
+conversaciones ni claves; dar o quitar admin y «Platform AI», borrar cuentas), AI (conexión, clave y modelos de la
+plataforma, con prueba de conexión), Limits, Sources, Privacy (responsable y contacto del aviso) y Jobs (Horizon).
 
 Los administradores gestionan las fuentes de noticias (cada una con su categoría, que se usa para filtrar el feed), no tienen límite de turnos de voz (el resto: 20 por minuto y 300 al día) ni cuentan para el tope diario de IA, y pueden abrir Horizon fuera de local. El usuario de prueba del seeder es administrador (el seeder no hace nada en producción).
 
@@ -303,6 +340,11 @@ npm test                      # lógica del frontend: turno de voz, grabación, 
 | `debates`           | `Debate`         | `status` → enum `DebateStatus`; `ai_feedback` (`jsonb`) → `array`; `started_at` / `ended_at` |
 | `debate_messages`   | `DebateMessage`  | `role` → enum `MessageRole`; solo `created_at`; `reply_to_id` (único) enlaza cada respuesta del tutor con su turno, así un turno se contesta una sola vez |
 | `user_vocabularies` | `UserVocabulary` | `mastery_level` 1–5 (CHECK en Postgres); `word` único por usuario |
+| `user_ai_keys`      | `UserAiKey`      | `key` cifrada, `last4`, `verified_at`; único por (`user_id`, `provider`) |
+| `user_ai_tasks`     | `UserAiTask`     | proveedor (o `platform`), modelo y voz por tarea; único por (`user_id`, `task`) |
+| `ai_usage`          | `AiUsage`        | una fila por llamada, sin contenido: tarea, proveedor, modelo, `paid_by`, tokens, `ok`; `user_id` nulo = trabajo común |
+| `user_hidden_sources` | `UserHiddenSource` | fuentes que cada usuario oculta de su feed |
+| `app_options`       | `AppOption`      | ajustes de la plataforma desde `/admin` (registro, conexión y clave de IA cifrada, privacidad) |
 
 ## Roadmap
 
