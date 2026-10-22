@@ -39,6 +39,7 @@ const MAX_TURN_SECONDS = 60;
 const REPORT_POLL_MS = 3_000;
 const REPORT_TIMEOUT_MS = 120_000;
 const TRANSCRIPT_POLL_MS = 5_000; // while the realtime channel is not live
+const BRIEF_POLL_MS = 5_000; // fallback only: DebateBriefReady can be sent while the channel is still connecting
 const SKIP_SPACE_TARGETS = 'input, textarea, select, button, a, summary, [role=button], [tabindex], [contenteditable]';
 const SPACE_STATES = ['idle', 'listening', 'speaking'];
 
@@ -189,6 +190,31 @@ useEcho(props.debate.channel, 'DebateBriefFailed', (event) => {
 
 useEcho(props.debate.channel, 'TutorOpened', turns.onOpened);
 useEcho(props.debate.channel, 'LearnerTurnReviewed', turns.onLearnerTurnReviewed);
+
+// While the brief is prepared, the server is asked now and then; the props carry its answer, and the refs follow them.
+watchEffect((onCleanup) => {
+    if (!isGuided.value || !isActive.value || !briefPreparing.value) {
+        return;
+    }
+
+    const poll = setInterval(() => router.reload({ only: ['brief', 'briefStatus'], async: true, showProgress: false }), BRIEF_POLL_MS);
+
+    onCleanup(() => clearInterval(poll));
+});
+
+watch(
+    () => props.brief,
+    (value) => {
+        if (value) brief.value = value;
+    },
+);
+
+watch(
+    () => props.briefStatus,
+    (value) => {
+        if (value) briefStatus.value = value;
+    },
+);
 
 // "Live" means subscribed to the private channel, not just connected: a refused subscription shows here.
 const realtime = useChannel(props.debate.channel).channel();
