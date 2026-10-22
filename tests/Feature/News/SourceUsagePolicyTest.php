@@ -251,6 +251,18 @@ class SourceUsagePolicyTest extends TestCase
         $this->assertSame($result->checkedAt->toDateTimeString(), $fresh->policy_checked_at->toDateTimeString());
     }
 
+    public function test_the_known_publisher_conditions_are_found_without_any_download(): void
+    {
+        $policy = app(SourceUsagePolicy::class);
+
+        $this->assertSame(
+            ['The BBC licenses its content for personal, non-commercial use only.'],
+            $policy->publisherConditions(self::FEED, collect([$this->article('https://www.bbc.co.uk/news/a')])),
+        );
+        $this->assertSame([], $policy->publisherConditions(self::FEED, collect([$this->article('https://news.example.test/a')])));
+        Http::assertNothingSent();
+    }
+
     public function test_check_records_an_unreadable_feed_as_unknown(): void
     {
         $source = NewsSource::factory()->create(['feed_url' => self::FEED]);

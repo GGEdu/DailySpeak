@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Web;
 
+use App\Jobs\CheckNewsSourcePolicy;
 use App\Jobs\FetchNewsSource;
 use App\Models\NewsArticle;
 use App\Models\NewsSource;
@@ -74,6 +75,23 @@ class NewsSourcesTest extends TestCase
             'category' => 'world',
             'is_active' => true,
         ]);
+    }
+
+    public function test_adding_a_source_queues_its_terms_check_and_reads_no_robots_file_in_the_request(): void
+    {
+        Queue::fake();
+        Http::fake(['feeds.example.test/*' => Http::response('<?xml version="1.0"?><rss version="2.0"><channel><item><title>Plain</title><link>https://news.example.test/a</link></item></channel></rss>')]);
+
+        $this->actingAs($this->admin)
+            ->post('/admin/sources', ['name' => 'Example – World', 'feed_url' => 'https://feeds.example.test/rss.xml', 'category' => 'world'])
+            ->assertRedirect()
+            ->assertSessionHas('status', 'Example – World added. It will be read in the next daily run; its usage terms are being checked.')
+            ->assertSessionMissing('warning');
+
+        $source = NewsSource::where('feed_url', 'https://feeds.example.test/rss.xml')->sole();
+        $this->assertSame('checking', $source->policy_status);
+        Queue::assertPushedOn('default', CheckNewsSourcePolicy::class, fn (CheckNewsSourcePolicy $job) => $job->sourceId === $source->id);
+        Http::assertNotSent(fn ($request) => str_ends_with($request->url(), '/robots.txt'));
     }
 
     public function test_a_new_source_needs_a_category_from_the_list(): void
@@ -213,7 +231,7 @@ class NewsSourcesTest extends TestCase
         $this->assertTrue($source->fresh()->is_active);
     }
 
-    public function test_a_source_whose_robots_txt_blocks_an_ai_crawler_is_saved_with_a_heads_up(): void
+    public function test_a_source_whose_robots_txt_blocks_an_ai_crawler_is_saved_with_a_warning_for_admins(): void
     {
         Http::fake([
             'feeds.example.test/robots.txt' => Http::response("User-agent: *\nAllow: /\n"),
@@ -224,10 +242,14 @@ class NewsSourcesTest extends TestCase
         $this->actingAs($this->admin)
             ->post('/admin/sources', ['name' => 'Example – World', 'feed_url' => 'https://feeds.example.test/rss.xml', 'category' => 'world'])
             ->assertRedirect()
-            ->assertSessionHas('warning', 'Example – World added. Heads-up: robots.txt on www.bbc.co.uk blocks GPTBot from the pages checked. The BBC licenses its content for personal, non-commercial use only.');
+            ->assertSessionHas('warning', 'Example – World added. Heads-up: The BBC licenses its content for personal, non-commercial use only.');
 
-        // A warning never stops the source: it is saved and active, and its result is kept for admins.
+        // A warning never stops the source: it is saved and active, and the robots.txt finding is kept for admins.
         $this->assertDatabaseHas('news_sources', ['feed_url' => 'https://feeds.example.test/rss.xml', 'is_active' => true, 'policy_status' => 'warning']);
+        $this->assertSame(
+            'robots.txt on www.bbc.co.uk blocks GPTBot from the pages checked. The BBC licenses its content for personal, non-commercial use only.',
+            NewsSource::where('feed_url', 'https://feeds.example.test/rss.xml')->value('policy_note'),
+        );
         $this->assertNotNull(NewsSource::where('feed_url', 'https://feeds.example.test/rss.xml')->value('policy_checked_at'));
     }
 
@@ -242,9 +264,13 @@ class NewsSourcesTest extends TestCase
         $this->actingAs($this->admin)
             ->post('/admin/sources', ['name' => 'Example – World', 'feed_url' => 'https://feeds.example.test/rss.xml', 'category' => 'world'])
             ->assertRedirect()
-            ->assertSessionHas('warning', 'Example – World added. Heads-up: The BBC licenses its content for personal, non-commercial use only. robots.txt on feeds.example.test could not be read (HTTP 503), so it was not checked. robots.txt on www.bbc.co.uk could not be read (HTTP 503), so it was not checked.');
+            ->assertSessionHas('warning', 'Example – World added. Heads-up: The BBC licenses its content for personal, non-commercial use only.');
 
         $this->assertDatabaseHas('news_sources', ['feed_url' => 'https://feeds.example.test/rss.xml', 'is_active' => true, 'policy_status' => 'warning']);
+        $this->assertStringContainsString(
+            'robots.txt on feeds.example.test could not be read (HTTP 503), so it was not checked.',
+            NewsSource::where('feed_url', 'https://feeds.example.test/rss.xml')->value('policy_note'),
+        );
     }
 
     public function test_admins_can_check_a_sources_usage_terms_again(): void
@@ -259,9 +285,10 @@ class NewsSourcesTest extends TestCase
         $this->actingAs($this->admin)
             ->patch("/admin/sources/{$source->id}", ['check_policy' => true])
             ->assertRedirect()
-            ->assertSessionHas('status', fn (string $status) => str_starts_with($status, 'BBC News – World checked. ') && str_contains($status, 'ClaudeBot'));
+            ->assertSessionHas('status', 'BBC News – World is being checked again. Its result appears in its row when the check ends.');
 
         $this->assertSame('warning', $source->fresh()->policy_status);
+        $this->assertStringContainsString('ClaudeBot', $source->fresh()->policy_note);
         $this->assertTrue($source->fresh()->is_active);
         $this->assertSame('world', $source->fresh()->category);
     }

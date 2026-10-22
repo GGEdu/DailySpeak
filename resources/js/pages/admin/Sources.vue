@@ -1,17 +1,25 @@
 <script setup>
-import { Head, router, useForm } from '@inertiajs/vue3';
-import { ref } from 'vue';
+import { Head, router, useForm, usePoll } from '@inertiajs/vue3';
+import { computed, onMounted, ref, watch } from 'vue';
 import TextField from '../../components/TextField.vue';
 import AppLayout from '../../layouts/AppLayout.vue';
 import { timeAgo } from '../../lib/time';
 
 defineOptions({ layout: AppLayout });
 
-defineProps({
+const props = defineProps({
     sources: { type: Array, required: true },
     // [{ key, label }] from config/news.php.
     categories: { type: Array, required: true },
 });
+
+// While a usage-terms check is queued or running, the page asks for the sources again, so its row updates by itself.
+const hasPendingCheck = computed(() => props.sources.some((source) => source.policy_status === 'checking'));
+const { start: pollSources, stop: stopPolling } = usePoll(3000, { only: ['sources'], preserveScroll: true }, { autoStart: false });
+const syncPolling = (pending) => (pending ? pollSources() : stopPolling());
+
+onMounted(() => syncPolling(hasPendingCheck.value));
+watch(hasPendingCheck, syncPolling);
 
 const form = useForm({
     name: '',
@@ -88,7 +96,7 @@ const remove = (source) => {
                 </div>
             </div>
             <div class="mt-5 flex items-center justify-between gap-4">
-                <p class="text-xs text-ink-500">The feed is downloaded and checked before it is saved.</p>
+                <p class="text-xs text-ink-500">The feed is downloaded and checked before it is saved. Its usage terms are checked in the background.</p>
                 <button
                     type="submit"
                     :disabled="form.processing"
@@ -115,8 +123,15 @@ const remove = (source) => {
                             >
                                 {{ source.is_active ? 'Active' : 'Paused' }}
                             </span>
+                            <span
+                                v-if="source.policy_status === 'checking'"
+                                role="status"
+                                class="rounded-full bg-speaking/10 px-2 py-0.5 text-[11px] font-medium text-speaking"
+                            >
+                                Checking terms…
+                            </span>
                             <button
-                                v-if="source.policy_status !== 'ok'"
+                                v-else-if="source.policy_status !== 'ok'"
                                 type="button"
                                 class="rounded-full px-2 py-0.5 text-[11px] font-medium transition hover:brightness-125"
                                 :class="source.policy_status === 'warning' ? 'bg-amber-400/10 text-amber-300' : 'bg-white/5 text-ink-300'"

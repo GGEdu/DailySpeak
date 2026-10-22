@@ -18,6 +18,9 @@ final readonly class SourcePolicyResult
     /** Something could not be checked. The note says what. */
     public const UNKNOWN = 'unknown';
 
+    /** The check is queued or running; the result from before it, if any, is still in the note. */
+    public const CHECKING = 'checking';
+
     public function __construct(
         public string $status,
         public string $note,
