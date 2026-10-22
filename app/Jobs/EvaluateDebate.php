@@ -7,6 +7,7 @@ use App\Enums\MessageRole;
 use App\Events\DebateEvaluated;
 use App\Events\DebateEvaluationFailed;
 use App\Models\Debate;
+use App\Services\Guided\LearnerCorrections;
 use App\Services\Vocabulary\WordLookup;
 use DateTimeInterface;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
@@ -101,7 +102,7 @@ class EvaluateDebate implements ShouldBeUnique, ShouldQueue
     /**
      * Execute the job.
      */
-    public function handle(): void
+    public function handle(LearnerCorrections $corrections): void
     {
         // A report is written once. A duplicate that got past the unique lock, or a retry queued after the
         // report was already saved, must not pay for a second evaluation.
@@ -113,6 +114,9 @@ class EvaluateDebate implements ShouldBeUnique, ShouldQueue
 
         $turns = $this->recentTurns();
         $feedback = $turns->isEmpty() ? self::EMPTY_FEEDBACK : $this->evaluate($turns);
+
+        // The corrections written during the debate are part of its report, beside the evaluator's own.
+        $feedback['grammar_errors'] = $corrections->mergeIntoReport($this->debate, $feedback['grammar_errors']);
 
         // The words and the report are saved together: if either fails, both roll back, so a retry starts
         // from the same deck and reports the same added words.

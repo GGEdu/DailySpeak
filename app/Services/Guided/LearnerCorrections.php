@@ -4,6 +4,8 @@ namespace App\Services\Guided;
 
 use App\Ai\Agents\LearnerTurnReviewer;
 use App\Ai\QuotedText;
+use App\Enums\MessageRole;
+use App\Models\Debate;
 use App\Models\DebateMessage;
 use App\Services\AiBudget;
 use Illuminate\Support\Facades\DB;
@@ -102,6 +104,36 @@ class LearnerCorrections
     }
 
     /**
+     * The report's grammar errors, with the turns' written corrections added: the ones the learner did not dismiss, and
+     * not those the evaluator already found (compared without case). The entries keep the report's shape.
+     *
+     * @param  list<array{error: string, correction: string}>  $grammarErrors  The evaluator's own.
+     * @return list<array{error: string, correction: string}>
+     */
+    public function mergeIntoReport(Debate $debate, array $grammarErrors): array
+    {
+        $known = collect($grammarErrors)->map(fn (array $error) => $this->key($error['error']));
+
+        $fromTurns = DebateMessage::query()
+            ->where('debate_id', $debate->getKey())
+            ->where('role', MessageRole::User)
+            ->whereNotNull('corrections')
+            ->orderBy('id')
+            ->get()
+            ->flatMap(fn (DebateMessage $turn) => collect($turn->corrections)
+                ->reject(fn (array $correction) => $correction['dismissed'])
+                ->map(fn (array $correction) => ['error' => $correction['original'], 'correction' => $correction['better']]));
+
+        $added = $fromTurns
+            ->reject(fn (array $error) => $known->contains($this->key($error['error'])))
+            ->unique(fn (array $error) => $this->key($error['error']))
+            ->values()
+            ->all();
+
+        return [...$grammarErrors, ...$added];
+    }
+
+    /**
      * The turn is quoted as data: the instructions say the transcript is machine text and that it is not to be obeyed.
      */
     private function prompt(string $transcript): string
@@ -135,5 +167,10 @@ class LearnerCorrections
             ->map(fn (array $correction) => [...$correction, 'dismissed' => false])
             ->values()
             ->all();
+    }
+
+    private function key(string $error): string
+    {
+        return mb_strtolower(trim($error));
     }
 }
