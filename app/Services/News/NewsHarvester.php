@@ -53,6 +53,9 @@ class NewsHarvester
     /** Paragraphs a summary may have. The prompt asks for three. */
     private const SUMMARY_PARAGRAPHS = [2, 5];
 
+    /** Sent after the article when the first summary was longer than news.max_summary_characters. */
+    private const SHORTER_RETRY = 'Your previous answer was too long. Answer again with the same JSON, keeping the summary at most 1500 characters in total, counting spaces, and keeping only its most important facts.';
+
     /**
      * Terms the model gave that are not in the article are dropped. A few paraphrases are tolerated, but an
      * answer where fewer than this many terms are the article's own is refused.
@@ -256,23 +259,19 @@ class NewsHarvester
         // The title and the page text are data, not instructions: their angle brackets are escaped (QuotedText), so
         // no marker can end the block early. The title sits inside the block with the text.
         $data = 'Title: '.QuotedText::escape($item->title)."\n\n".QuotedText::escape($text);
-        // The platform pays for the summaries, which are shared: no user is charged (see App\Services\Ai\AiCalls).
-        $response = $this->calls->call(
-            $this->platform->connection('writing'),
-            null,
-            fn (AiConnection $connection) => (new NewsSummarizer($connection))->prompt(self::TEXT_OPEN."\n{$data}\n".self::TEXT_CLOSE),
-            fn ($answer) => AiCalls::textUsage($answer),
-        );
+        $response = $this->askModel($data);
 
         if (($response['is_article'] ?? false) !== true) {
             return null;
         }
 
-        // Models often separate paragraphs with a single newline; the UI expects blank lines.
-        $paragraphs = collect(preg_split('/\R+/u', (string) ($response['summary'] ?? '')))
-            ->map(fn (string $paragraph) => trim($paragraph))
-            ->filter()
-            ->values();
+        // The model often ignores the length asked for in the prompt. One more try, told to shorten, is cheaper
+        // than losing the article: a second answer that is still too long fails below as before.
+        if ($this->isTooLong($response)) {
+            $response = $this->askModel($data, shorter: true);
+        }
+
+        $paragraphs = $this->paragraphsOf($response);
         $summary = $paragraphs->implode("\n\n");
 
         $vocabulary = collect($response['vocabulary'] ?? [])
@@ -295,6 +294,46 @@ class NewsHarvester
         $this->assertPlausibleSummary($summary, $paragraphs->count());
 
         return ['summary' => $summary, 'vocabulary' => $vocabulary];
+    }
+
+    /**
+     * One call to the summarising model. The platform pays for the summaries, which are shared: no user is charged
+     * (see App\Services\Ai\AiCalls).
+     *
+     * @return mixed the agent's structured answer, read with array access
+     */
+    private function askModel(string $data, bool $shorter = false)
+    {
+        $block = self::TEXT_OPEN."\n{$data}\n".self::TEXT_CLOSE;
+
+        if ($shorter) {
+            $block .= "\n".self::SHORTER_RETRY;
+        }
+
+        return $this->calls->call(
+            $this->platform->connection('writing'),
+            null,
+            fn (AiConnection $connection) => (new NewsSummarizer($connection))->prompt($block),
+            fn ($answer) => AiCalls::textUsage($answer),
+        );
+    }
+
+    /**
+     * Models often separate paragraphs with a single newline; the UI expects blank lines.
+     *
+     * @return Collection<int, string>
+     */
+    private function paragraphsOf($response): Collection
+    {
+        return collect(preg_split('/\R+/u', (string) ($response['summary'] ?? '')))
+            ->map(fn (string $paragraph) => trim($paragraph))
+            ->filter()
+            ->values();
+    }
+
+    private function isTooLong($response): bool
+    {
+        return mb_strlen($this->paragraphsOf($response)->implode("\n\n")) > config('news.max_summary_characters');
     }
 
     /**

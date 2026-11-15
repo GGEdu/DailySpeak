@@ -357,6 +357,42 @@ class FetchDailyNewsTest extends TestCase
         }
     }
 
+    public function test_a_summary_over_the_limit_is_asked_again_shorter_and_stored_when_the_retry_fits(): void
+    {
+        $this->fakeHttp();
+        $long = implode("\n\n", array_fill(0, 3, str_repeat('The council has approved the plan and it is long. ', 15)));
+        $calls = 0;
+        NewsSummarizer::fake(function () use (&$calls, $long) {
+            $calls++;
+
+            return [
+                'is_article' => true,
+                'summary' => $calls === 1 ? $long : self::SUMMARY,
+                'vocabulary' => self::VOCABULARY,
+            ];
+        })->preventStrayPrompts();
+
+        $this->artisan('news:fetch', ['--limit' => 1])->assertSuccessful();
+
+        NewsSummarizer::assertPromptedTimes(2);
+        NewsSummarizer::assertPrompted(fn (AgentPrompt $prompt) => str_contains($prompt->prompt, 'too long'));
+        $this->assertSame(self::SUMMARY, NewsArticle::sole()->summary);
+    }
+
+    public function test_a_summary_still_over_the_limit_after_the_retry_is_a_failure(): void
+    {
+        $this->fakeHttp();
+        $long = implode("\n\n", array_fill(0, 3, str_repeat('The council has approved the plan and it is long. ', 15)));
+        NewsSummarizer::fake(fn () => ['is_article' => true, 'summary' => $long, 'vocabulary' => self::VOCABULARY])->preventStrayPrompts();
+
+        $this->artisan('news:fetch')->assertFailed();
+
+        // The fixture feed has two articles, each asked once more after the first answer was too long.
+        NewsSummarizer::assertPromptedTimes(4);
+        $this->assertStringContainsString('longer than 2000', $this->source->fresh()->last_error);
+        $this->assertSame(0, NewsArticle::count());
+    }
+
     public function test_the_page_text_is_delimited_and_cannot_close_its_own_block(): void
     {
         // The page uses the words of the fake summary, so the vocabulary check accepts them.
