@@ -44,7 +44,7 @@ class NewsSummarizer implements Agent, HasStructuredOutput
                 ->description('True only when the text is a news or feature article. False for videos, live blogs, listings, galleries and pages without prose.')
                 ->required(),
             'summary' => $schema->string()
-                ->description('Three-paragraph summary of the article in English, paragraphs separated by a blank line, using only facts stated in the article.')
+                ->description('Three-paragraph summary of the article in English, paragraphs separated by a blank line, using only facts stated in the article. At most 1500 characters in total, counting spaces.')
                 ->required(),
             'vocabulary' => $schema->array()
                 ->items($schema->string())

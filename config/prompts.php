@@ -15,6 +15,7 @@ return [
 
     'news_summary' => <<<'PROMPT'
         Resume esta noticia en 3 párrafos para un estudiante de inglés C1. Extrae 5 términos de vocabulario avanzado. Devuelve estrictamente JSON: {"is_article": true, "summary": "Primer párrafo.\n\nSegundo párrafo.\n\nTercer párrafo.", "vocabulary": ["word1", "word2", "word3", "word4", "word5"]}
+        El resumen completo ocupa como máximo 1500 caracteres contando espacios: cada párrafo tiene 2 o 3 frases cortas.
         Escribe el resumen y el vocabulario en inglés, separando los párrafos con una línea en blanco.
         Usa solo hechos que aparezcan en el texto: no añadas datos, opiniones ni enlaces.
         El vocabulario son palabras o expresiones tomadas literalmente del texto.
